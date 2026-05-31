@@ -13,11 +13,165 @@ test("getMainPageMockScenario reads supported mock scenarios from the query stri
   assert.equal(getMainPageMockScenario("?mock=invitation"), "invitation");
   assert.equal(getMainPageMockScenario("?mock=invitation-delay"), "invitation-delay");
   assert.equal(getMainPageMockScenario("?mock=start-ready"), "start-ready");
+  assert.equal(getMainPageMockScenario("?mock=presentation-owner"), "presentation-owner");
+  assert.equal(getMainPageMockScenario("?mock=presentation-guest"), "presentation-guest");
   assert.equal(getMainPageMockScenario("?mock=unknown"), null);
   assert.equal(isMainPageMockModeEnabled("?mock=room-create"), true);
   assert.equal(isMainPageMockModeEnabled("?mock=invitation"), true);
   assert.equal(isMainPageMockModeEnabled("?mock=start-ready"), true);
   assert.equal(isMainPageMockModeEnabled("?debug=scroll"), false);
+});
+
+test("presentation owner scenario creates a room and waits for the invited guest", async () => {
+  const api = createMainPageMockApi("presentation-owner");
+  const [session] = await api.getSessions("presentation-owner");
+
+  await api.sendMessage(session.aiChatSessionId, {
+    message: "방 만들어줘",
+  });
+  await api.sendMessage(session.aiChatSessionId, {
+    message: "쉬운 난이도로 방 만들어줘.",
+  });
+  const createRoomResponse = await api.sendMessage(session.aiChatSessionId, {
+    message: "문자열 뒤집기 템플릿으로 진행할게요.",
+  });
+  assert.equal(
+    createRoomResponse.assistantMessage?.content,
+    "방이 생성되었어요! 친구들을 초대해보세요.",
+  );
+
+  const inviteResponse = await api.sendMessage(session.aiChatSessionId, {
+    message: "성민, 수현, 현, 정화 초대해줘.",
+  });
+  const [room] = await api.getCurrentRooms("presentation-owner");
+  const participants = await api.getRoomParticipants(room.gameRoomId);
+
+  assert.equal(inviteResponse.requestType, "USER_INVITE");
+  assert.equal(inviteResponse.commandResult?.status, "SUCCESS");
+  assert.deepEqual(inviteResponse.commandResult?.participants, ["성민", "수현", "현", "정화"]);
+  assert.equal(
+    inviteResponse.assistantMessage?.content,
+    "성민, 수현, 현, 정화님에게 초대가 전송되었어요. 친구가 초대를 수락하면 알려드릴게요.",
+  );
+  assert.equal(room.myRole, "OWNER");
+  assert.equal(room.joinedParticipantCount, 1);
+  assert.equal(room.maxParticipants, 5);
+  assert.deepEqual(
+    participants.map((participant) => participant.nickname),
+    ["현하"],
+  );
+  assert.deepEqual(await api.startGame(room.gameRoomId), { success: true });
+});
+
+test("presentation guest scenario accepts an invitation and shows the completed waiting room", async () => {
+  const previousWindow = globalThis.window;
+  const storage = new Map([["neconaeco:presentation-invitees", '["성민"]']]);
+
+  globalThis.window = {
+    localStorage: {
+      getItem(key) {
+        return storage.get(key) ?? null;
+      },
+      removeItem(key) {
+        storage.delete(key);
+      },
+      setItem(key, value) {
+        storage.set(key, value);
+      },
+    },
+  };
+
+  try {
+    const api = createMainPageMockApi("presentation-guest");
+    const [session] = await api.getSessions("presentation-guest");
+    const invitations = await api.getInvitedParticipants("presentation-guest");
+
+    assert.equal(invitations.length, 1);
+    assert.equal(invitations[0].nickname, "현하");
+
+    const response = await api.sendMessage(session.aiChatSessionId, {
+      message: "문자열 핸들링 릴레이 방 초대 수락할게요.",
+    });
+    const [room] = await api.getCurrentRooms("presentation-guest");
+    const participants = await api.getRoomParticipants(room.gameRoomId);
+
+    assert.equal(response.requestType, "ROOM_JOIN");
+    assert.equal(room.myRole, "PARTICIPANT");
+    assert.equal(room.joinedParticipantCount, 5);
+    assert.deepEqual(
+      participants.map((participant) => participant.nickname),
+      ["현하", "성민", "정화", "현", "수현"],
+    );
+  } finally {
+    globalThis.window = previousWindow;
+  }
+});
+
+test("presentation guest acceptance updates the owner waiting room and appends an entry notice", async () => {
+  const previousWindow = globalThis.window;
+  const storage = new Map();
+
+  globalThis.window = {
+    localStorage: {
+      getItem(key) {
+        return storage.get(key) ?? null;
+      },
+      removeItem(key) {
+        storage.delete(key);
+      },
+      setItem(key, value) {
+        storage.set(key, value);
+      },
+    },
+  };
+
+  try {
+    const guestApi = createMainPageMockApi("presentation-guest");
+    const [guestSession] = await guestApi.getSessions("presentation-guest");
+
+    assert.deepEqual(await guestApi.getInvitedParticipants("presentation-guest"), []);
+
+    const ownerApi = createMainPageMockApi("presentation-owner");
+    const [ownerSession] = await ownerApi.getSessions("presentation-owner");
+
+    await ownerApi.sendMessage(ownerSession.aiChatSessionId, {
+      message: "방 만들어줘",
+    });
+    await ownerApi.sendMessage(ownerSession.aiChatSessionId, {
+      message: "쉬운 난이도로 방 만들어줘.",
+    });
+    await ownerApi.sendMessage(ownerSession.aiChatSessionId, {
+      message: "문자열 뒤집기 템플릿으로 진행할게요.",
+    });
+    await ownerApi.sendMessage(ownerSession.aiChatSessionId, {
+      message: "성민, 수현, 현, 정화 초대해줘.",
+    });
+
+    const guestInvitations = await guestApi.getInvitedParticipants("presentation-guest");
+
+    assert.equal(guestInvitations.length, 1);
+    assert.equal(guestInvitations[0].nickname, "현하");
+
+    await guestApi.sendMessage(guestSession.aiChatSessionId, {
+      message: "문자열 핸들링 릴레이 방 초대 수락할게요.",
+    });
+
+    const [ownerRoom] = await ownerApi.getCurrentRooms("presentation-owner");
+    const ownerParticipants = await ownerApi.getRoomParticipants(ownerRoom.gameRoomId);
+    const ownerMessages = await ownerApi.getMessages(ownerSession.aiChatSessionId);
+
+    assert.equal(ownerRoom.joinedParticipantCount, 2);
+    assert.deepEqual(
+      ownerParticipants.map((participant) => participant.nickname),
+      ["현하", "성민"],
+    );
+    assert.equal(
+      ownerMessages.at(-1)?.content,
+      "'성민'님이 입장했습니다. 게임을 시작할 수 있어요.",
+    );
+  } finally {
+    globalThis.window = previousWindow;
+  }
 });
 
 test("createMainPageMockApi drives the staged room-create flow without a backend", async () => {

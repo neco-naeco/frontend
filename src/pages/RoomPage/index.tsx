@@ -1,9 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import Editor, { type BeforeMount } from "@monaco-editor/react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import "./RoomPage.css";
 import { useAppStore } from "../../app/providers/ClientStateProvider";
 import { isRoomSessionUnavailable } from "../../features/realtime/roomSocketLifecycle";
 import { useRoomSocketLifecycle } from "../../features/realtime/useRoomSocketLifecycle";
+import { isPresentationMockScenario } from "../MainPage/mockMode";
+import {
+  calculatorMissionSteps,
+  isCalculatorStepComplete,
+  resolveMissionTurn,
+} from "./missionProgress";
 import backgroundRunImg from "../../assets/characters/background-run.png";
 import catIdeaImg from "../../assets/characters/cat-idea.png";
 import catNoImg from "../../assets/characters/cat-no.png";
@@ -36,13 +43,6 @@ type MissionFile = {
   content: string;
 };
 
-type ProgressStep = {
-  id: number;
-  title: string;
-  description: string;
-  state: "done" | "active" | "waiting";
-};
-
 type AiMasterStep = "analysis" | "feedback" | "error";
 type ResultModalState = "success" | "failure" | null;
 type StartCountdownValue = 5 | 4 | 3 | 2 | 1 | "START";
@@ -51,26 +51,7 @@ const missionFiles: MissionFile[] = [
   {
     id: "main.py",
     name: "main.py",
-    content: `def even_numbers(numbers):
-    result = []
-    for n in numbers:
-        if n % 2 == 0:
-            result.append(n)
-    return result
-
-# 실행 예시
-data = [1, 2, 3, 4, 5, 6]
-print(even_numbers(data))`,
-  },
-  {
-    id: "sub.py",
-    name: "sub.py",
-    content: `def is_even(number):
-    return number % 2 == 0
-
-
-def format_result(numbers):
-    return ", ".join(str(number) for number in numbers)`,
+    content: "",
   },
 ];
 
@@ -115,33 +96,6 @@ const teamMembers: TeamMember[] = [
     avatarAlt: "노란 캐릭터",
     color: "#f8dfb5",
     status: "waiting",
-  },
-];
-
-const progressSteps: ProgressStep[] = [
-  {
-    id: 1,
-    title: "리스트 합계 계산",
-    description: "사용자 입력에서 숫자 리스트를 읽어옵니다.",
-    state: "done",
-  },
-  {
-    id: 2,
-    title: "짝수만 모아 새 리스트 반환",
-    description: "조건문으로 짝수 값을 판별합니다.",
-    state: "active",
-  },
-  {
-    id: 3,
-    title: "반환 출력",
-    description: "완성된 리스트를 화면에 보여줍니다.",
-    state: "waiting",
-  },
-  {
-    id: 4,
-    title: "기능 확인",
-    description: "다양한 입력으로 결과를 검증합니다.",
-    state: "waiting",
   },
 ];
 
@@ -194,6 +148,13 @@ const aiMasterSteps: Array<{ id: AiMasterStep; label: string }> = [
   { id: "error", label: "오류 피드백" },
 ];
 
+const aiAnalysisSteps = [
+  "코드 구조 분석",
+  "로직 검증",
+  "테스트 실행",
+  "결과 생성",
+];
+
 const runnerFrames = [
   rabbitRun1Img,
   rabbitRun2Img,
@@ -202,20 +163,39 @@ const runnerFrames = [
 ];
 
 const currentUserId = "me";
-const currentTurnUserId = "me";
-const currentTurnFileId = "sub.py";
+const currentTurnFileId = "main.py";
 const turnTimeLimitSeconds = 30;
 const turnStartCodeByFile = Object.fromEntries(
   missionFiles.map((file) => [file.id, file.content]),
 );
+const configureMonaco: BeforeMount = (monaco) => {
+  monaco.editor.defineTheme("neconaeco-light", {
+    base: "vs",
+    inherit: true,
+    rules: [],
+    colors: {
+      "editor.background": "#ffffff",
+      "editor.foreground": "#071107",
+      "editor.lineHighlightBackground": "#f4f8ed",
+      "editorLineNumber.foreground": "#a2aa9b",
+      "editorLineNumber.activeForeground": "#668342",
+      "editorCursor.foreground": "#31552b",
+      "editor.selectionBackground": "#dcebd2",
+      "editorIndentGuide.background1": "#edf1e9",
+    },
+  });
+};
 
 export function RoomPage() {
   const navigate = useNavigate();
   const { gameRoomId } = useParams();
-  useRoomSocketLifecycle(gameRoomId);
+  const mockScenario = new URLSearchParams(window.location.search).get("mock");
+  const isPresentationMock = isPresentationMockScenario(mockScenario);
+  useRoomSocketLifecycle(gameRoomId, !isPresentationMock);
   const realtimeStatus = useAppStore((state) => state.realtime.connectionStatus);
   const terminatedReason = useAppStore((state) => state.realtime.terminatedReason);
-  const isRealtimeUnavailable = isRoomSessionUnavailable(realtimeStatus);
+  const isRealtimeUnavailable =
+    !isPresentationMock && isRoomSessionUnavailable(realtimeStatus);
   const [selectedFileId, setSelectedFileId] = useState(missionFiles[0].id);
   const [fileContents, setFileContents] =
     useState<Record<string, string>>(turnStartCodeByFile);
@@ -226,20 +206,32 @@ export function RoomPage() {
     useState<StartCountdownValue>(5);
   const [resultModal, setResultModal] = useState<ResultModalState>(null);
   const [isAiJudging, setIsAiJudging] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState(-1);
+  const [currentTurnIndex, setCurrentTurnIndex] = useState(0);
+  const [currentStepIndex, setCurrentStepIndex] = useState(0);
+  const [remainingLives, setRemainingLives] = useState(3);
+  const [turnNotice, setTurnNotice] = useState(
+    "1단계 코드를 작성한 뒤 제출해주세요.",
+  );
   const [turnDeadlineAt, setTurnDeadlineAt] = useState(
     () => Date.now() + turnTimeLimitSeconds * 1000,
   );
   const [remainingSeconds, setRemainingSeconds] =
     useState(turnTimeLimitSeconds);
   const judgingTimerRef = useRef<number | null>(null);
+  const analysisProgressTimerRef = useRef<number | null>(null);
   const startTimerRef = useRef<number | null>(null);
-  const isMyTurn = currentTurnUserId === currentUserId;
+  const timeoutHandledRef = useRef(false);
+  const currentTurnUser = teamMembers[currentTurnIndex];
+  const isMyTurn =
+    isPresentationMock || currentTurnUser.id === currentUserId;
   const isTurnExpired = remainingSeconds <= 0;
   const isTurnActionLocked =
     !isMyTurn ||
     isAiJudging ||
     isTurnExpired ||
     isStartModalOpen ||
+    resultModal !== null ||
     isRealtimeUnavailable;
   const isSuccessResult = resultModal === "success";
   const canFollowCurrentTurn = missionFiles.length > 1;
@@ -250,15 +242,70 @@ export function RoomPage() {
     2,
     "0",
   )} : ${String(remainingSeconds % 60).padStart(2, "0")}`;
-  const randomizedTurnOrder = useMemo(
-    () => [...teamMembers].sort(() => Math.random() - 0.5),
-    [],
+  const startNextTurn = useCallback((nextTurnIndex: number) => {
+    timeoutHandledRef.current = false;
+    setCurrentTurnIndex(nextTurnIndex);
+    setRemainingSeconds(turnTimeLimitSeconds);
+    setTurnDeadlineAt(Date.now() + turnTimeLimitSeconds * 1000);
+  }, []);
+
+  const failCurrentTurn = useCallback(
+    (reason: "submit" | "timeout") => {
+      const outcome = resolveMissionTurn({
+        completed: false,
+        currentStepIndex,
+        currentTurnIndex,
+        participantCount: teamMembers.length,
+        remainingLives,
+      });
+      setRemainingLives(outcome.remainingLives);
+
+      if (outcome.result === "failure") {
+        setTurnNotice("팀 목숨을 모두 사용했어요.");
+        setResultModal("failure");
+        return;
+      }
+
+      setTurnNotice(
+        reason === "timeout"
+          ? `제한시간이 끝났어요. ${teamMembers[(currentTurnIndex + 1) % teamMembers.length].name}님이 ${currentStepIndex + 1}단계를 이어서 작성합니다.`
+          : `아직 ${currentStepIndex + 1}단계 구현이 부족해요. ${teamMembers[(currentTurnIndex + 1) % teamMembers.length].name}님이 이어서 작성합니다.`,
+      );
+      startNextTurn(outcome.nextTurnIndex);
+    },
+    [currentStepIndex, currentTurnIndex, remainingLives, startNextTurn],
   );
+
+  const completeCurrentStep = useCallback(() => {
+    const outcome = resolveMissionTurn({
+      completed: true,
+      currentStepIndex,
+      currentTurnIndex,
+      participantCount: teamMembers.length,
+      remainingLives,
+    });
+
+    if (outcome.result === "success") {
+      setTurnNotice("계산기 미션의 모든 단계를 완성했어요.");
+      setResultModal("success");
+      return;
+    }
+
+    setCurrentStepIndex(outcome.nextStepIndex);
+    setTurnNotice(
+      `${currentStepIndex + 1}단계를 완료했어요. ${teamMembers[outcome.nextTurnIndex].name}님이 ${outcome.nextStepIndex + 1}단계를 작성합니다.`,
+    );
+    startNextTurn(outcome.nextTurnIndex);
+  }, [currentStepIndex, currentTurnIndex, remainingLives, startNextTurn]);
 
   useEffect(() => {
     return () => {
       if (judgingTimerRef.current !== null) {
         window.clearTimeout(judgingTimerRef.current);
+      }
+
+      if (analysisProgressTimerRef.current !== null) {
+        window.clearInterval(analysisProgressTimerRef.current);
       }
 
       if (startTimerRef.current !== null) {
@@ -320,6 +367,27 @@ export function RoomPage() {
     return () => window.clearInterval(timerId);
   }, [isStartModalOpen, turnDeadlineAt]);
 
+  useEffect(() => {
+    if (
+      isStartModalOpen ||
+      isAiJudging ||
+      resultModal !== null ||
+      remainingSeconds > 0 ||
+      timeoutHandledRef.current
+    ) {
+      return;
+    }
+
+    timeoutHandledRef.current = true;
+    failCurrentTurn("timeout");
+  }, [
+    failCurrentTurn,
+    isAiJudging,
+    isStartModalOpen,
+    remainingSeconds,
+    resultModal,
+  ]);
+
   const handleSubmitTurn = () => {
     if (isTurnActionLocked) {
       return;
@@ -328,16 +396,43 @@ export function RoomPage() {
     setAiMasterStep("analysis");
     setIsHintOpen(false);
     setIsAiJudging(true);
+    setAnalysisProgress(0);
 
     if (judgingTimerRef.current !== null) {
       window.clearTimeout(judgingTimerRef.current);
     }
 
+    if (analysisProgressTimerRef.current !== null) {
+      window.clearInterval(analysisProgressTimerRef.current);
+    }
+
+    analysisProgressTimerRef.current = window.setInterval(() => {
+      setAnalysisProgress((currentProgress) =>
+        Math.min(currentProgress + 1, aiAnalysisSteps.length - 1),
+      );
+    }, 650);
+
     judgingTimerRef.current = window.setTimeout(() => {
+      if (analysisProgressTimerRef.current !== null) {
+        window.clearInterval(analysisProgressTimerRef.current);
+        analysisProgressTimerRef.current = null;
+      }
+
       setIsAiJudging(false);
-      setResultModal("success");
+      const isCurrentStepComplete = isCalculatorStepComplete(
+        currentStepIndex,
+        selectedCode,
+      );
+
+      if (isCurrentStepComplete) {
+        completeCurrentStep();
+      } else {
+        setAiMasterStep("error");
+        failCurrentTurn("submit");
+      }
+
       judgingTimerRef.current = null;
-    }, 2600);
+    }, 2800);
   };
 
   return (
@@ -353,11 +448,16 @@ export function RoomPage() {
             <span>남은 시간</span>
             <strong>{timerText}</strong>
           </div>
-          <div className="status-pill lives" aria-label="팀 목숨 2개 남음">
+          <div className="status-pill lives" aria-label={`팀 목숨 ${remainingLives}개 남음`}>
             <span>팀 목숨</span>
-            <span>♥</span>
-            <span>♥</span>
-            <span className="empty-heart">♡</span>
+            {[0, 1, 2].map((heartIndex) => (
+              <span
+                className={heartIndex < remainingLives ? "" : "empty-heart"}
+                key={heartIndex}
+              >
+                {heartIndex < remainingLives ? "♥" : "♡"}
+              </span>
+            ))}
           </div>
           <div className="status-pill">🐍 Python</div>
         </div>
@@ -400,11 +500,7 @@ export function RoomPage() {
         <aside className="left-rail">
           <section className="panel mission-panel">
             <h2>⚑ 미션</h2>
-            <p>
-              짝수를 모아 리스트를
-              <br />
-              반환하는 함수를 작성하세요.
-            </p>
+            <p>PYTHON으로 표준 입력을 읽어 사칙연산 계산기를 단계별로 완성합니다.</p>
             <img className="mission-mascot" src={hamImg} alt="미션 안내 캐릭터" />
           </section>
 
@@ -436,9 +532,9 @@ export function RoomPage() {
               </button>
             </div>
             <div className="member-list">
-              {teamMembers.map((member) => (
+              {teamMembers.map((member, memberIndex) => (
                 <div
-                  className={`member-row ${member.status === "current" ? "current" : ""}`}
+                  className={`member-row ${memberIndex === currentTurnIndex ? "current" : ""}`}
                   key={member.id}
                 >
                   <span className="avatar">
@@ -446,9 +542,9 @@ export function RoomPage() {
                   </span>
                   <strong>
                     {member.name}
-                    {member.role ? ` (${member.role})` : ""}
+                    {memberIndex === currentTurnIndex ? " (현재)" : ""}
                   </strong>
-                  {member.status === "current" ? <em>현재 턴</em> : null}
+                  {memberIndex === currentTurnIndex ? <em>현재 턴</em> : null}
                 </div>
               ))}
             </div>
@@ -458,23 +554,45 @@ export function RoomPage() {
         <section className="main-column">
           <section className="editor-card panel">
             <div className="editor-tab">{selectedFile.name}</div>
-            <textarea
-              aria-label={`${selectedFile.name} 코드 편집기`}
-              className="code-editor"
-              readOnly={isTurnActionLocked}
-              spellCheck={false}
-              value={selectedCode}
-              onChange={(event) => {
-                if (isTurnActionLocked) {
-                  return;
-                }
+            <div className="code-editor-shell">
+              <Editor
+                beforeMount={configureMonaco}
+                defaultLanguage="python"
+                language="python"
+                options={{
+                  automaticLayout: true,
+                  fontFamily: '"Fira Code", Consolas, monospace',
+                  fontSize: 18,
+                  lineHeight: 32,
+                  lineNumbers: "on",
+                  lineNumbersMinChars: 3,
+                  minimap: { enabled: false },
+                  padding: { top: 78, bottom: 24 },
+                  readOnly: isTurnActionLocked,
+                  renderLineHighlight: "all",
+                  roundedSelection: false,
+                  scrollBeyondLastLine: false,
+                  scrollbar: {
+                    horizontalScrollbarSize: 10,
+                    verticalScrollbarSize: 10,
+                  },
+                  tabSize: 4,
+                }}
+                path={selectedFile.id}
+                theme="neconaeco-light"
+                value={selectedCode}
+                onChange={(value) => {
+                  if (isTurnActionLocked) {
+                    return;
+                  }
 
-                setFileContents((currentContents) => ({
-                  ...currentContents,
-                  [selectedFile.id]: event.target.value,
-                }));
-              }}
-            />
+                  setFileContents((currentContents) => ({
+                    ...currentContents,
+                    [selectedFile.id]: value ?? "",
+                  }));
+                }}
+              />
+            </div>
             <div className="editor-actions">
               <button
                 className={`submit-button ${isMyTurn && !isAiJudging ? "active" : ""}`}
@@ -496,23 +614,35 @@ export function RoomPage() {
           </section>
 
           <section className="panel progress-panel">
-            <h3>미션 진행도</h3>
+            <div className="progress-header">
+              <h3>미션 진행도</h3>
+              <span role="status">{turnNotice}</span>
+            </div>
             <div className="progress-steps">
-              {progressSteps.map((step) => (
-                <article className={`progress-step ${step.state}`} key={step.id}>
+              {calculatorMissionSteps.map((step, stepIndex) => {
+                const stepState =
+                  stepIndex < currentStepIndex
+                    ? "done"
+                    : stepIndex === currentStepIndex
+                      ? "active"
+                      : "waiting";
+
+                return (
+                <article className={`progress-step ${stepState}`} key={step.id}>
                   <span className="step-number">{step.id}</span>
-                  <span className="step-icon">{step.state === "done" ? "✓" : "✣"}</span>
+                  <span className="step-icon">{stepState === "done" ? "✓" : "✣"}</span>
                   <strong>{step.title}</strong>
                   <p>{step.description}</p>
                   <em>
-                    {step.state === "done"
+                    {stepState === "done"
                       ? "완료"
-                      : step.state === "active"
+                      : stepState === "active"
                         ? "진행 중"
                         : "대기 중"}
                   </em>
                 </article>
-              ))}
+                );
+              })}
             </div>
           </section>
         </section>
@@ -542,34 +672,58 @@ export function RoomPage() {
               {aiMasterStep === "analysis" ? (
                 <div className="analysis-view">
                   <strong>
-                    AI 마스터가 <span>코드를 분석</span>하고 있어요!
+                    {isAiJudging ? (
+                      <>
+                        AI 마스터가 <span>코드를 분석</span>하고 있어요!
+                      </>
+                    ) : (
+                      <>
+                        코드를 작성하고 <span>제출</span>해 주세요!
+                      </>
+                    )}
                   </strong>
-                  <small>잠시만 기다려주세요. 약 5~10초 소요</small>
+                  <small>
+                    {isAiJudging
+                      ? "잠시만 기다려주세요. 약 5~10초 소요"
+                      : "제출하면 AI 마스터가 단계별로 코드를 확인해드려요."}
+                  </small>
                   <div className="analysis-steps">
-                    <span className="active">1 코드 구조 분석</span>
-                    <span>2 로직 검증</span>
-                    <span>3 테스트 실행</span>
-                    <span>4 결과 생성</span>
+                    {aiAnalysisSteps.map((step, stepIndex) => (
+                      <span
+                        className={
+                          isAiJudging && stepIndex <= analysisProgress
+                            ? "active"
+                            : ""
+                        }
+                        key={step}
+                      >
+                        {stepIndex + 1} {step}
+                      </span>
+                    ))}
                   </div>
                   <div
                     className="run-track"
                     style={{ backgroundImage: `url(${backgroundRunImg})` }}
                   >
-                    <div className="runner">
-                      {runnerFrames.map((frame, index) => (
-                        <img
-                          alt=""
-                          key={frame}
-                          src={frame}
-                          style={{ animationDelay: `${index * 0.14}s` }}
-                        />
-                      ))}
+                    <div className={`runner ${isAiJudging ? "running" : "idle"}`}>
+                      {isAiJudging ? (
+                        runnerFrames.map((frame, index) => (
+                          <img
+                            alt=""
+                            key={frame}
+                            src={frame}
+                            style={{ animationDelay: `${index * 0.14}s` }}
+                          />
+                        ))
+                      ) : (
+                        <img alt="분석 대기 중인 토끼 캐릭터" src={rabbitRun1Img} />
+                      )}
                     </div>
                   </div>
                   <div className="analysis-notice">
                     {isAiJudging
                       ? "제출한 코드를 분석하고 있어요..."
-                      : "코드 구조를 분석하고 있어요..."}
+                      : turnNotice}
                   </div>
                 </div>
               ) : null}
@@ -580,12 +734,12 @@ export function RoomPage() {
                   <div className="feedback-card">
                     <strong>코드를 분석했어요!</strong>
                     <p>
-                      짝수 판별 조건(if n % 2 == 0)이 올바르게 작성되었어요.
-                      이제 짝수를 result 리스트에 추가하는 흐름을 이어가보세요.
+                      현재 단계 구현이 확인됐어요. 다음 작성자가 이어서 계산기
+                      로직을 완성할 수 있습니다.
                     </p>
                   </div>
                   <HintPanel open={isHintOpen}>
-                    리스트 컴프리헨션을 사용하면 더 간결하게 작성할 수 있어요!
+                    현재 진행 중인 단계는 {calculatorMissionSteps[currentStepIndex].title}입니다.
                   </HintPanel>
                 </div>
               ) : null}
@@ -596,14 +750,14 @@ export function RoomPage() {
                   <div className="feedback-card error">
                     <strong>ⓘ 코드에 문제가 있어요!</strong>
                     <p>
-                      짝수만 필터링해야 하는데, 현재 코드는 모든 숫자를 그대로
-                      반환하고 있어요. 미션 조건을 만족하지 못했습니다.
+                      {calculatorMissionSteps[currentStepIndex].title} 단계 구현이 아직
+                      완료되지 않았어요. 다음 작성자가 기존 코드를 이어서 수정합니다.
                     </p>
                     <hr />
                     <b>💡 수정 방향</b>
-                    <p>if n % 2 == 0 조건을 사용해서 짝수만 result 리스트에 추가해보세요!</p>
+                    <p>{calculatorMissionSteps[currentStepIndex].description}</p>
                     <HintPanel open={isHintOpen}>
-                      append를 호출하기 전에 짝수인지 확인하는 조건문을 먼저 통과시켜보세요.
+                      단계별 예시를 참고해 누락된 코드를 추가해보세요.
                     </HintPanel>
                   </div>
                 </div>
@@ -657,15 +811,17 @@ export function RoomPage() {
         <ResultModal
           result={resultModal}
           success={isSuccessResult}
-          onClose={() => setResultModal(null)}
+          onClose={() =>
+            navigate(isPresentationMock ? "/main?mock=presentation-owner" : "/main")
+          }
         />
       ) : null}
 
       {isStartModalOpen ? (
         <GameStartModal
           countdown={startCountdown}
-          missionTitle="짝수만 모아 반환하는 리스트 함수를 작성하세요"
-          order={randomizedTurnOrder}
+          missionTitle="PYTHON으로 표준 입력을 읽어 사칙연산 계산기를 단계별로 완성합니다."
+          order={teamMembers}
         />
       ) : null}
     </div>
@@ -706,12 +862,6 @@ function ResultModal({
           alt={success ? "성공한 팀 캐릭터" : "실패한 팀 캐릭터"}
         />
         <p>{success ? "모든 코드를 잘 작성했어요!" : "팀 목숨을 모두 사용했어요."}</p>
-        {success ? (
-          <div className="execution-result">
-            <b>실행 결과</b>
-            <code>[2, 4, 6]</code>
-          </div>
-        ) : null}
         <button type="button" onClick={onClose}>
           게임 종료
         </button>

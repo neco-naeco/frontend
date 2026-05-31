@@ -12,7 +12,10 @@ import {
 
 let roomSocketLifecycleController: RoomSocketLifecycleController | null = null;
 
-export function useRoomSocketLifecycle(routeGameRoomId: string | undefined) {
+export function useRoomSocketLifecycle(
+  routeGameRoomId: string | undefined,
+  enabled = true,
+) {
   const store = useAppStoreApi();
   const accessToken = useAppStore((state) => state.auth.accessToken);
   const currentRoom = useAppStore((state) => state.room.currentRoom);
@@ -30,6 +33,10 @@ export function useRoomSocketLifecycle(routeGameRoomId: string | undefined) {
   );
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     if (!roomSocketLifecycleController) {
       roomSocketLifecycleController =
         createStoreBackedRoomSocketLifecycleController(store);
@@ -46,5 +53,5 @@ export function useRoomSocketLifecycle(routeGameRoomId: string | undefined) {
         }
       }, 0);
     };
-  }, [lifecycleInput, routeGameRoomId, store]);
+  }, [enabled, lifecycleInput, routeGameRoomId, store]);
 }

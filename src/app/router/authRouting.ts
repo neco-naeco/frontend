@@ -14,17 +14,23 @@ export function shouldBypassProtectedRouteForMainPageMock(
   pathname: string,
   search: string,
 ) {
-  if (pathname !== "/main") {
+  const value = new URLSearchParams(search).get("mock");
+  const isMainPage = pathname === "/main";
+  const isPresentationGameRoom =
+    /^\/rooms\/[^/]+\/play$/.test(pathname) &&
+    (value === "presentation-owner" || value === "presentation-guest");
+
+  if (!isMainPage && !isPresentationGameRoom) {
     return false;
   }
-
-  const value = new URLSearchParams(search).get("mock");
 
   return (
     value === "room-create" ||
     value === "room-create-delay" ||
     value === "invitation" ||
     value === "invitation-delay" ||
-    value === "start-ready"
+    value === "start-ready" ||
+    value === "presentation-owner" ||
+    value === "presentation-guest"
   );
 }

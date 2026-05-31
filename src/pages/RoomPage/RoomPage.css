@@ -332,25 +332,11 @@
   font-weight: 900;
 }
 
-.code-editor {
+.code-editor-shell {
   flex: 1;
   min-height: 0;
-  resize: none;
-  border: 0;
   border-bottom: 1px solid #e1e8dc;
-  outline: 0;
-  padding: 78px 34px 24px;
-  background:
-    linear-gradient(#f4f8ed, #f4f8ed) 0 78px / 100% 32px no-repeat,
-    #fff;
-  color: #071107;
-  font-family: "Fira Code", Consolas, monospace;
-  font-size: 18px;
-  line-height: 32px;
-}
-
-.code-editor:read-only {
-  cursor: default;
+  background: #fff;
 }
 
 .editor-actions {
@@ -407,17 +393,31 @@
   flex-direction: column;
 }
 
+.progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.progress-header span {
+  color: #678559;
+  font-size: 11px;
+  font-weight: 900;
+  text-align: right;
+}
+
 .progress-steps {
   margin-top: 20px;
   flex: 1;
   display: grid;
-  grid-template-columns: repeat(4, minmax(110px, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(5, minmax(94px, 1fr));
+  gap: 12px;
 }
 
 .progress-step {
   position: relative;
-  padding: 34px 16px 18px;
+  padding: 30px 12px 14px;
   border: 1px solid #e2e8dc;
   border-radius: 4px;
   text-align: center;
@@ -598,10 +598,13 @@
   top: 26px;
   width: 178px;
   height: 178px;
+}
+
+.runner.running {
   animation: run-across 5.6s linear infinite;
 }
 
-.runner img {
+.runner.running img {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -610,6 +613,13 @@
   transform: scale(1.45);
   opacity: 0;
   animation: frame-fade 0.56s steps(1, end) infinite;
+}
+
+.runner.idle img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform: scale(1.45);
 }
 
 .analysis-notice {
@@ -846,25 +856,6 @@
 .result-modal p {
   color: #7a8278;
   font-weight: 800;
-}
-
-.execution-result {
-  width: 100%;
-  margin-top: 26px;
-  padding-top: 18px;
-  border-top: 1px solid #d8ded4;
-}
-
-.execution-result code {
-  height: 48px;
-  margin-top: 14px;
-  border-radius: 3px;
-  background: #faf7f4;
-  color: #5fa34a;
-  display: grid;
-  place-items: center;
-  font-size: 16px;
-  font-weight: 900;
 }
 
 .result-modal button {

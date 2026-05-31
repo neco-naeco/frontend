@@ -7,19 +7,37 @@ import type {
 } from "../../shared/types/domain";
 
 export const MAIN_PAGE_MOCK_PARAM = "mock";
+export const PRESENTATION_MOCK_STORAGE_KEY = "neconaeco:presentation-guest-joined";
+export const PRESENTATION_INVITES_STORAGE_KEY = "neconaeco:presentation-invitees";
 
 export type MainPageMockScenario =
   | "room-create"
   | "room-create-delay"
   | "invitation"
   | "invitation-delay"
-  | "start-ready";
+  | "start-ready"
+  | "presentation-owner"
+  | "presentation-guest";
 
 export const MAIN_PAGE_MOCK_USER = {
   userId: "mock-user-1",
   loginId: "mock-user",
   nickname: "목플레이어",
   email: "mock@example.com",
+};
+
+const PRESENTATION_OWNER_USER = {
+  userId: "presentation-owner",
+  loginId: "hyeonha",
+  nickname: "현하",
+  email: "hyeonha@example.com",
+};
+
+const PRESENTATION_GUEST_USER = {
+  userId: "presentation-guest",
+  loginId: "seongmin",
+  nickname: "성민",
+  email: "seongmin@example.com",
 };
 
 type MockRoomCreateStep =
@@ -54,8 +72,26 @@ function isMainPageMockScenario(value: string | null): value is MainPageMockScen
     value === "room-create-delay" ||
     value === "invitation" ||
     value === "invitation-delay" ||
-    value === "start-ready"
+    value === "start-ready" ||
+    value === "presentation-owner" ||
+    value === "presentation-guest"
   );
+}
+
+export function isPresentationMockScenario(scenario: string | null) {
+  return scenario === "presentation-owner" || scenario === "presentation-guest";
+}
+
+export function getMainPageMockUser(scenario: MainPageMockScenario) {
+  if (scenario === "presentation-owner") {
+    return PRESENTATION_OWNER_USER;
+  }
+
+  if (scenario === "presentation-guest") {
+    return PRESENTATION_GUEST_USER;
+  }
+
+  return MAIN_PAGE_MOCK_USER;
 }
 
 function createIsoTimestamp(offsetMinutes: number) {
@@ -64,10 +100,13 @@ function createIsoTimestamp(offsetMinutes: number) {
   return new Date(baseTime + offsetMinutes * 60_000).toISOString();
 }
 
-function createMockSession(gameRoomId: string | null = null): AiChatSession {
+function createMockSession(
+  gameRoomId: string | null = null,
+  user = MAIN_PAGE_MOCK_USER,
+): AiChatSession {
   return {
     aiChatSessionId: "mock-session-room-create",
-    requesterUserId: MAIN_PAGE_MOCK_USER.userId,
+    requesterUserId: user.userId,
     gameRoomId,
     status: "ACTIVE",
     provider: "openai",
@@ -112,7 +151,8 @@ function createWelcomeMessage() {
     aiChatRequestId: null,
     senderType: "ASSISTANT",
     messageType: "TEXT",
-    content: "목데이터 모드예요. '방 만들어줘'라고 입력하거나 아래 흐름을 눌러서 테스트해보세요.",
+    content:
+      "안녕하세요! AI 마스터입니다. 😄\n네코내코에 오신 것을 환영해요!\n\n현재 참여하고있는 방이 없어요.\n방을 만들고 친구를 초대해보세요!",
     createdAt: createIsoTimestamp(1),
   });
 }
@@ -126,6 +166,29 @@ function createInvitationWelcomeMessage() {
     content:
       "목데이터 모드예요. 도착한 초대장을 카드에서 바로 수락하거나 거절해보세요.",
     createdAt: createIsoTimestamp(1),
+  });
+}
+
+function createPresentationGuestWelcomeMessage() {
+  return createMessage({
+    messageId: "presentation-guest-welcome",
+    aiChatRequestId: null,
+    senderType: "ASSISTANT",
+    messageType: "TEXT",
+    content:
+      "안녕하세요! AI 마스터입니다. 😄\n네코내코에 오신 것을 환영해요!\n\n현재 참여하고있는 방이 없어요.\n방을 만들고 친구를 초대해보세요!",
+    createdAt: createIsoTimestamp(1),
+  });
+}
+
+function createPresentationGuestInvitationMessage() {
+  return createMessage({
+    messageId: "presentation-guest-invitation-arrived",
+    aiChatRequestId: null,
+    senderType: "ASSISTANT",
+    messageType: "SYSTEM_NOTICE",
+    content: "현하님이 문자열 핸들링 릴레이 방에 초대했어요. 아래 초대장을 확인해주세요.",
+    createdAt: createIsoTimestamp(2),
   });
 }
 
@@ -154,6 +217,26 @@ function createCurrentRoom(): CurrentGameRoom {
     maxParticipants: 4,
     createdAt: createIsoTimestamp(8),
     updatedAt: createIsoTimestamp(8),
+  };
+}
+
+function createPresentationOwnerRoom(): CurrentGameRoom {
+  return {
+    ...createCurrentRoom(),
+    gameRoomId: "presentation-room-1",
+    title: "문자열 핸들링 릴레이 방",
+    ownerUserId: PRESENTATION_OWNER_USER.userId,
+    myRole: "OWNER",
+    joinedParticipantCount: 1,
+    maxParticipants: 5,
+  };
+}
+
+function createPresentationGuestRoom(): CurrentGameRoom {
+  return {
+    ...createPresentationOwnerRoom(),
+    myRole: "PARTICIPANT",
+    joinedParticipantCount: 5,
   };
 }
 
@@ -203,6 +286,158 @@ function createInvitationParticipant(): GameRoomParticipant {
   };
 }
 
+function createPresentationInvitation(): GameRoomParticipant {
+  return {
+    participantId: "presentation-invitation-1",
+    gameRoomId: "presentation-room-1",
+    gameRoomTitle: "문자열 핸들링 릴레이 방",
+    userId: PRESENTATION_OWNER_USER.userId,
+    nickname: PRESENTATION_OWNER_USER.nickname,
+    role: "OWNER",
+    status: "INVITED",
+    roomStatus: "WAITING",
+    createdAt: createIsoTimestamp(2),
+  };
+}
+
+function createPresentationParticipants(): GameRoomParticipant[] {
+  const room = createPresentationOwnerRoom();
+
+  return [
+    [PRESENTATION_OWNER_USER.userId, PRESENTATION_OWNER_USER.nickname, "OWNER"],
+    [PRESENTATION_GUEST_USER.userId, PRESENTATION_GUEST_USER.nickname, "PARTICIPANT"],
+    ["presentation-player-jeonghwa", "정화", "PARTICIPANT"],
+    ["presentation-player-hyeon", "현", "PARTICIPANT"],
+    ["presentation-player-suhyeon", "수현", "PARTICIPANT"],
+  ].map(([userId, nickname, role], index) =>
+    createRoomParticipant({
+      participantId: `presentation-participant-${index + 1}`,
+      gameRoomId: room.gameRoomId,
+      gameRoomTitle: room.title,
+      userId,
+      nickname,
+      role: role as GameRoomParticipant["role"],
+      status: "JOINED",
+    }),
+  );
+}
+
+function createPresentationOwnerParticipant() {
+  return createPresentationParticipants()[0];
+}
+
+function createPresentationGuestParticipant() {
+  return createPresentationParticipants()[1];
+}
+
+function hasPresentationGuestJoined() {
+  return (
+    typeof window !== "undefined" &&
+    window.localStorage.getItem(PRESENTATION_MOCK_STORAGE_KEY) === "true"
+  );
+}
+
+function setPresentationGuestJoined(hasJoined: boolean) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (hasJoined) {
+    window.localStorage.setItem(PRESENTATION_MOCK_STORAGE_KEY, "true");
+    return;
+  }
+
+  window.localStorage.removeItem(PRESENTATION_MOCK_STORAGE_KEY);
+}
+
+function getPresentationInvitees() {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const invitees = JSON.parse(
+      window.localStorage.getItem(PRESENTATION_INVITES_STORAGE_KEY) ?? "[]",
+    );
+
+    return Array.isArray(invitees)
+      ? invitees.filter((invitee): invitee is string => typeof invitee === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function setPresentationInvitees(invitees: string[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (invitees.length > 0) {
+    window.localStorage.setItem(PRESENTATION_INVITES_STORAGE_KEY, JSON.stringify(invitees));
+    return;
+  }
+
+  window.localStorage.removeItem(PRESENTATION_INVITES_STORAGE_KEY);
+}
+
+function syncPresentationGuestInvitation(state: MockMainPageState) {
+  if (
+    state.scenario !== "presentation-guest" ||
+    state.currentRoom ||
+    state.invitations.length > 0 ||
+    !getPresentationInvitees().includes(PRESENTATION_GUEST_USER.nickname)
+  ) {
+    return;
+  }
+
+  state.invitations = [createPresentationInvitation()];
+
+  if (
+    !state.messages.some(
+      (message) => message.messageId === "presentation-guest-invitation-arrived",
+    )
+  ) {
+    appendMessages(state, createPresentationGuestInvitationMessage());
+  }
+}
+
+function syncPresentationOwnerGuestJoin(state: MockMainPageState) {
+  if (
+    state.scenario !== "presentation-owner" ||
+    !state.currentRoom ||
+    !hasPresentationGuestJoined() ||
+    state.roomParticipants.some(
+      (participant) => participant.userId === PRESENTATION_GUEST_USER.userId,
+    )
+  ) {
+    return;
+  }
+
+  const joinedAt = createIsoTimestamp(state.messages.length + 2);
+
+  state.currentRoom = {
+    ...state.currentRoom,
+    joinedParticipantCount: 2,
+    updatedAt: joinedAt,
+  };
+  state.roomParticipants = [
+    createPresentationOwnerParticipant(),
+    createPresentationGuestParticipant(),
+  ];
+  appendMessages(
+    state,
+    createMessage({
+      messageId: "presentation-owner-guest-joined",
+      aiChatRequestId: null,
+      senderType: "ASSISTANT",
+      messageType: "SYSTEM_NOTICE",
+      content: "'성민'님이 입장했습니다. 게임을 시작할 수 있어요.",
+      createdAt: joinedAt,
+    }),
+  );
+}
+
 function createRoomParticipant({
   participantId,
   gameRoomId,
@@ -234,6 +469,37 @@ function createRoomParticipant({
 }
 
 function createInitialMockState(scenario: MainPageMockScenario): MockMainPageState {
+  if (scenario === "presentation-guest") {
+    return {
+      scenario,
+      step: "idle",
+      session: createMockSession(null, PRESENTATION_GUEST_USER),
+      messages: [createPresentationGuestWelcomeMessage()],
+      currentRoom: null,
+      invitations: [],
+      roomParticipants: [],
+      currentRoomSyncLag: 0,
+      currentTemplates: [],
+    };
+  }
+
+  if (scenario === "presentation-owner") {
+    setPresentationGuestJoined(false);
+    setPresentationInvitees([]);
+
+    return {
+      scenario,
+      step: "idle",
+      session: createMockSession(null, PRESENTATION_OWNER_USER),
+      messages: [createWelcomeMessage()],
+      currentRoom: null,
+      invitations: [],
+      roomParticipants: [],
+      currentRoomSyncLag: 0,
+      currentTemplates: [],
+    };
+  }
+
   if (scenario === "start-ready") {
     const room = createStartReadyRoom();
 
@@ -313,6 +579,19 @@ function normalizeMessage(value: string) {
   return value.trim().toLowerCase();
 }
 
+function extractPresentationInvitees(message: string) {
+  const inviteeText = message
+    .replace(/초대\s*해줘[.!?]?/g, "")
+    .replace(/초대[.!?]?/g, "")
+    .trim();
+  const invitees = inviteeText
+    .split(/[,，]/)
+    .map((nickname) => nickname.trim())
+    .filter(Boolean);
+
+  return invitees.length > 0 ? invitees : ["성민"];
+}
+
 function buildResponse({
   aiChatRequestId,
   requestType,
@@ -371,6 +650,12 @@ function getTemplatesByDifficulty(difficulty: "EASY" | "NORMAL" | "HARD") {
   switch (difficulty) {
     case "EASY":
       return [
+        {
+          templateId: "mock-template-easy-calculator",
+          title: "표준 입력 계산기",
+          description: "Python으로 표준 입력을 읽어 사칙연산 계산기를 단계별로 완성합니다.",
+          difficulty,
+        },
         {
           templateId: "mock-template-easy-1",
           title: "기초 산술 연산",
@@ -539,7 +824,8 @@ function createDifficultyResponse(
 
 function createTemplateResponse(state: MockMainPageState, message: string) {
   const ids = createRequestIds(state.messages.length + 1);
-  const room = createCurrentRoom();
+  const room =
+    state.scenario === "presentation-owner" ? createPresentationOwnerRoom() : createCurrentRoom();
   const userMessage = createMessage({
     messageId: ids.userMessageId,
     aiChatRequestId: ids.aiChatRequestId,
@@ -553,7 +839,10 @@ function createTemplateResponse(state: MockMainPageState, message: string) {
     aiChatRequestId: ids.aiChatRequestId,
     senderType: "ASSISTANT",
     messageType: "COMMAND_RESULT",
-    content: "방 생성을 완료했어요. `/main`에서 바로 대기방 모드로 이어질게요.",
+    content:
+      state.scenario === "presentation-owner"
+        ? "방이 생성되었어요! 친구들을 초대해보세요."
+        : "방 생성을 완료했어요. `/main`에서 바로 대기방 모드로 이어질게요.",
     metadata: {
       gameRoomId: room.gameRoomId,
       roomStatus: room.status,
@@ -568,8 +857,14 @@ function createTemplateResponse(state: MockMainPageState, message: string) {
       participantId: "mock-room-owner-participant-1",
       gameRoomId: room.gameRoomId,
       gameRoomTitle: room.title,
-      userId: MAIN_PAGE_MOCK_USER.userId,
-      nickname: MAIN_PAGE_MOCK_USER.nickname,
+      userId:
+        state.scenario === "presentation-owner"
+          ? PRESENTATION_OWNER_USER.userId
+          : MAIN_PAGE_MOCK_USER.userId,
+      nickname:
+        state.scenario === "presentation-owner"
+          ? PRESENTATION_OWNER_USER.nickname
+          : MAIN_PAGE_MOCK_USER.nickname,
       role: "OWNER",
       status: "JOINED",
     }),
@@ -595,6 +890,51 @@ function createTemplateResponse(state: MockMainPageState, message: string) {
       gameRoomId: room.gameRoomId,
       title: room.title,
       participants: null,
+      started: false,
+    },
+  });
+}
+
+function createPresentationInviteResponse(state: MockMainPageState, message: string) {
+  const ids = createRequestIds(state.messages.length + 1);
+  const room = createPresentationOwnerRoom();
+  const invitees = extractPresentationInvitees(message);
+  const userMessage = createMessage({
+    messageId: ids.userMessageId,
+    aiChatRequestId: ids.aiChatRequestId,
+    senderType: "USER",
+    messageType: "TEXT",
+    content: message,
+    createdAt: ids.timestamp,
+  });
+  const assistantMessage = createMessage({
+    messageId: ids.assistantMessageId,
+    aiChatRequestId: ids.aiChatRequestId,
+    senderType: "ASSISTANT",
+    messageType: "COMMAND_RESULT",
+    content: `${invitees.join(", ")}님에게 초대가 전송되었어요. 친구가 초대를 수락하면 알려드릴게요.`,
+    createdAt: createIsoTimestamp(state.messages.length + 2),
+  });
+
+  setPresentationGuestJoined(false);
+  setPresentationInvitees(invitees);
+  state.currentRoom = room;
+  state.roomParticipants = [createPresentationOwnerParticipant()];
+  appendMessages(state, userMessage, assistantMessage);
+
+  return buildResponse({
+    aiChatRequestId: ids.aiChatRequestId,
+    requestType: "USER_INVITE",
+    requestStatus: "COMPLETED",
+    userMessage,
+    assistantMessage,
+    commandResult: {
+      commandType: "USER_INVITE",
+      status: "SUCCESS",
+      apiPath: `/v1/game-rooms/${room.gameRoomId}/invitations`,
+      gameRoomId: room.gameRoomId,
+      title: room.title,
+      participants: invitees,
       started: false,
     },
   });
@@ -644,8 +984,11 @@ function createInvalidTemplateResponse(state: MockMainPageState, message: string
 
 function createRoomJoinResponse(state: MockMainPageState, message: string) {
   const ids = createRequestIds(state.messages.length + 1);
-  const room = createJoinedInvitationRoom();
-  const invitation = state.invitations[0] ?? createInvitationParticipant();
+  const isPresentationGuest = state.scenario === "presentation-guest";
+  const room = isPresentationGuest ? createPresentationGuestRoom() : createJoinedInvitationRoom();
+  const invitation =
+    state.invitations[0] ??
+    (isPresentationGuest ? createPresentationInvitation() : createInvitationParticipant());
   const userMessage = createMessage({
     messageId: ids.userMessageId,
     aiChatRequestId: ids.aiChatRequestId,
@@ -670,7 +1013,7 @@ function createRoomJoinResponse(state: MockMainPageState, message: string) {
 
   state.currentRoom = room;
   state.invitations = [];
-  state.roomParticipants = [
+  state.roomParticipants = isPresentationGuest ? createPresentationParticipants() : [
     createRoomParticipant({
       participantId: "mock-room-owner-participant-2",
       gameRoomId: room.gameRoomId,
@@ -690,6 +1033,9 @@ function createRoomJoinResponse(state: MockMainPageState, message: string) {
       status: "JOINED",
     }),
   ];
+  if (isPresentationGuest) {
+    setPresentationGuestJoined(true);
+  }
   state.session = {
     ...state.session,
     gameRoomId: room.gameRoomId,
@@ -709,7 +1055,7 @@ function createRoomJoinResponse(state: MockMainPageState, message: string) {
       apiPath: `/v1/game-room-participants/${invitation.participantId}/join`,
       gameRoomId: room.gameRoomId,
       title: room.title,
-      participants: ["목방장", MAIN_PAGE_MOCK_USER.nickname],
+      participants: state.roomParticipants.map((participant) => participant.nickname),
       started: false,
     },
   });
@@ -779,6 +1125,7 @@ export function createMainPageMockApi(
   return {
     async getCurrentRooms() {
       const state = getScenarioState(scenario, instanceId);
+      syncPresentationOwnerGuestJoin(state);
 
       if (state.currentRoomSyncLag > 0) {
         state.currentRoomSyncLag -= 1;
@@ -789,11 +1136,15 @@ export function createMainPageMockApi(
     },
 
     async getInvitedParticipants(_: string) {
-      return getScenarioState(scenario, instanceId).invitations;
+      const state = getScenarioState(scenario, instanceId);
+      syncPresentationGuestInvitation(state);
+      return state.invitations;
     },
 
     async getRoomParticipants(_: string) {
-      return getScenarioState(scenario, instanceId).roomParticipants;
+      const state = getScenarioState(scenario, instanceId);
+      syncPresentationOwnerGuestJoin(state);
+      return state.roomParticipants;
     },
 
     async getSessions(_: string) {
@@ -801,7 +1152,10 @@ export function createMainPageMockApi(
     },
 
     async getMessages(_: string) {
-      return getScenarioState(scenario, instanceId).messages;
+      const state = getScenarioState(scenario, instanceId);
+      syncPresentationOwnerGuestJoin(state);
+      syncPresentationGuestInvitation(state);
+      return state.messages;
     },
 
     async sendMessage(_: string, request: { message: string }): Promise<SendAiChatMessageResponse> {
@@ -809,7 +1163,9 @@ export function createMainPageMockApi(
       const normalizedMessage = normalizeMessage(request.message);
 
       if (
-        (scenario === "invitation" || scenario === "invitation-delay") &&
+        (scenario === "invitation" ||
+          scenario === "invitation-delay" ||
+          scenario === "presentation-guest") &&
         state.invitations.length > 0
       ) {
         if (normalizedMessage.includes("수락") || normalizedMessage.includes("참가")) {
@@ -819,6 +1175,14 @@ export function createMainPageMockApi(
         if (normalizedMessage.includes("거절") || normalizedMessage.includes("사양")) {
           return createInvitationDenyResponse(state, request.message.trim());
         }
+      }
+
+      if (
+        scenario === "presentation-owner" &&
+        state.currentRoom &&
+        (normalizedMessage.includes("초대") || normalizedMessage.includes("불러"))
+      ) {
+        return createPresentationInviteResponse(state, request.message.trim());
       }
 
       if (
@@ -862,6 +1226,10 @@ export function createMainPageMockApi(
     },
 
     reset() {
+      if (scenario === "presentation-owner") {
+        setPresentationGuestJoined(false);
+        setPresentationInvitees([]);
+      }
       mockStates.set(instanceId, createInitialMockState(scenario));
     },
   };

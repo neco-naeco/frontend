@@ -44,8 +44,23 @@ test("shouldBypassProtectedRouteForMainPageMock only allows supported mock scena
     true,
   );
   assert.equal(
+    shouldBypassProtectedRouteForMainPageMock("/main", "?mock=presentation-owner"),
+    true,
+  );
+  assert.equal(
+    shouldBypassProtectedRouteForMainPageMock("/main", "?mock=presentation-guest"),
+    true,
+  );
+  assert.equal(
     shouldBypassProtectedRouteForMainPageMock("/rooms/mock", "?mock=room-create"),
     false,
+  );
+  assert.equal(
+    shouldBypassProtectedRouteForMainPageMock(
+      "/rooms/presentation-room-1/play",
+      "?mock=presentation-owner",
+    ),
+    true,
   );
   assert.equal(
     shouldBypassProtectedRouteForMainPageMock("/main", "?mock=unknown"),

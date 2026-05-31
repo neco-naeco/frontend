@@ -1,6 +1,7 @@
 import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAppStore, useAppStoreApi } from "../../app/providers/ClientStateProvider";
 import { aiChatApi } from "../../features/ai-chat/aiChatApi";
 import { syncSentAiChatResponse } from "../../features/ai-chat/aiChatMessage";
@@ -54,8 +55,11 @@ import {
 } from "./mainInitialization";
 import {
   createMainPageMockApi,
+  getMainPageMockUser,
   getMainPageMockScenario,
-  MAIN_PAGE_MOCK_USER,
+  isPresentationMockScenario,
+  PRESENTATION_INVITES_STORAGE_KEY,
+  PRESENTATION_MOCK_STORAGE_KEY,
 } from "./mockMode";
 import { notifyAuthLogout } from "../../shared/api/authStorage";
 
@@ -755,6 +759,39 @@ function RoomCreateTemplateSelector({
   );
 }
 
+function RoomCreateConfirmation({
+  template,
+  disabled,
+  onConfirm,
+}: {
+  template: RoomCreateTemplateOption;
+  disabled: boolean;
+  onConfirm: () => void;
+}) {
+  return (
+    <AssistantMessage>
+      <p>{template.title} 방을 생성할까요?</p>
+      <div className="main-selection-grid">
+        <div className="main-selection-card">
+          <div className="main-selection-card__header">
+            <strong>{template.title}</strong>
+            <span>{getDifficultyLabel(template.difficulty)}</span>
+          </div>
+          <p>{template.description}</p>
+        </div>
+      </div>
+      <button
+        type="button"
+        className="main-chat-shell__retry"
+        disabled={disabled}
+        onClick={onConfirm}
+      >
+        생성하기
+      </button>
+    </AssistantMessage>
+  );
+}
+
 function WaitingRoomModeNotice({ room }: { room: CurrentGameRoom }) {
   return (
     <AssistantMessage timestamp={room.updatedAt}>
@@ -809,6 +846,7 @@ function MainReadyState({
   shouldShowRoomCreateDifficultyUi,
   shouldShowRoomCreateTemplateUi,
   roomCreateTemplates,
+  selectedPresentationTemplate,
   latestRoomCreateDifficulty,
   waitingRoomTransition,
   roomWaitingState,
@@ -834,6 +872,7 @@ function MainReadyState({
   onComposerSubmit,
   onSelectRoomCreateDifficulty,
   onSelectRoomCreateTemplate,
+  onConfirmPresentationRoomCreate,
   onAcceptInvitation,
   onDenyInvitation,
   onRetryInvitationAction,
@@ -856,6 +895,7 @@ function MainReadyState({
   shouldShowRoomCreateDifficultyUi: boolean;
   shouldShowRoomCreateTemplateUi: boolean;
   roomCreateTemplates: RoomCreateTemplateOption[];
+  selectedPresentationTemplate: RoomCreateTemplateOption | null;
   latestRoomCreateDifficulty: string | null;
   waitingRoomTransition: WaitingRoomTransitionState | null;
   roomWaitingState: RoomWaitingState | null;
@@ -886,6 +926,7 @@ function MainReadyState({
   onComposerSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onSelectRoomCreateDifficulty: (difficulty: RoomCreateDifficulty) => void;
   onSelectRoomCreateTemplate: (template: RoomCreateTemplateOption) => void;
+  onConfirmPresentationRoomCreate: () => void;
   onAcceptInvitation: (invitation: GameRoomParticipant) => void;
   onDenyInvitation: (invitation: GameRoomParticipant) => void;
   onRetryInvitationAction: () => void;
@@ -901,11 +942,15 @@ function MainReadyState({
 }) {
   const hasCurrentRoom = Boolean(currentRoom);
   const hasInvitations = invitations.length > 0;
+  const shouldHidePresentationOwnerWaitingRoom =
+    mockScenario === "presentation-owner" &&
+    currentRoom?.joinedParticipantCount === 1;
+  const hasVisibleCurrentRoom = hasCurrentRoom && !shouldHidePresentationOwnerWaitingRoom;
 
   return (
     <div className="main-chat-shell">
       <div className="main-chat-shell__body">
-        {mockScenario ? (
+        {mockScenario && !isPresentationMockScenario(mockScenario) ? (
           <MainMockModeNotice scenario={mockScenario} onReset={onResetMockScenario} />
         ) : null}
 
@@ -932,7 +977,7 @@ function MainReadyState({
           </AssistantMessage>
         ) : null}
 
-        {hasCurrentRoom || hasInvitations ? (
+        {hasVisibleCurrentRoom || hasInvitations ? (
           <AssistantMessage timestamp={currentRoom?.updatedAt ?? invitations[0]?.createdAt}>
             <p>현재 서버 상태를 바탕으로 방 정보와 초대장을 불러왔어요.</p>
           </AssistantMessage>
@@ -946,7 +991,9 @@ function MainReadyState({
           </AssistantMessage>
         ) : null}
 
-        {currentRoom?.status === "WAITING" ? <WaitingRoomModeNotice room={currentRoom} /> : null}
+        {currentRoom?.status === "WAITING" && !shouldHidePresentationOwnerWaitingRoom ? (
+          <WaitingRoomModeNotice room={currentRoom} />
+        ) : null}
 
         {!currentRoom && waitingRoomTransition ? (
           <WaitingRoomTransitionNotice
@@ -958,6 +1005,7 @@ function MainReadyState({
 
         {currentRoom &&
         currentRoom.status === "WAITING" &&
+        !shouldHidePresentationOwnerWaitingRoom &&
         (isWaitingRoomLoading || roomWaitingState) ? (
           <AssistantMessage timestamp={currentRoom.updatedAt}>
             <p>현재 참여 중인 대기방 상태를 정리했어요.</p>
@@ -997,12 +1045,20 @@ function MainReadyState({
           />
         ) : null}
 
-        {!hasCurrentRoom && shouldShowRoomCreateTemplateUi ? (
+        {!hasCurrentRoom && shouldShowRoomCreateTemplateUi && !selectedPresentationTemplate ? (
           <RoomCreateTemplateSelector
             templates={roomCreateTemplates}
             selectedDifficulty={latestRoomCreateDifficulty}
             disabled={isAiChatSendPending}
             onSelect={onSelectRoomCreateTemplate}
+          />
+        ) : null}
+
+        {!hasCurrentRoom && selectedPresentationTemplate ? (
+          <RoomCreateConfirmation
+            template={selectedPresentationTemplate}
+            disabled={isAiChatSendPending}
+            onConfirm={onConfirmPresentationRoomCreate}
           />
         ) : null}
 
@@ -1162,6 +1218,7 @@ type InvitationActionState = {
 };
 
 export function MainPage() {
+  const navigate = useNavigate();
   const store = useAppStoreApi();
   const user = useAppStore((state) => state.auth.user);
   const aiChatState = useAppStore((state) => state.aiChat);
@@ -1177,6 +1234,8 @@ export function MainPage() {
   const [startButtonNotice, setStartButtonNotice] = useState<string | null>(null);
   const [isStartRequestAccepted, setIsStartRequestAccepted] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [selectedPresentationTemplate, setSelectedPresentationTemplate] =
+    useState<RoomCreateTemplateOption | null>(null);
   const [mockInstanceId] = useState(
     () => `main-page-mock-${Math.random().toString(36).slice(2, 10)}`,
   );
@@ -1190,7 +1249,7 @@ export function MainPage() {
   const mainPageMockApi = mockScenario
     ? createMainPageMockApi(mockScenario, mockInstanceId)
     : null;
-  const effectiveUser = mockScenario ? MAIN_PAGE_MOCK_USER : user;
+  const effectiveUser = mockScenario ? getMainPageMockUser(mockScenario) : user;
 
   const currentRoomQuery = useQuery({
     queryKey: ["main-page-current-room", effectiveUser?.userId, mockScenario],
@@ -1359,6 +1418,58 @@ export function MainPage() {
       : null;
 
   useEffect(() => {
+    if (mockScenario !== "presentation-owner") {
+      return;
+    }
+
+    function handlePresentationGuestJoin(event: StorageEvent) {
+      if (event.key !== PRESENTATION_MOCK_STORAGE_KEY || event.newValue !== "true") {
+        return;
+      }
+
+      void Promise.all([
+        currentRoomQuery.refetch(),
+        roomWaitingParticipantsQuery.refetch(),
+        aiChatMessageQuery.refetch(),
+      ]);
+    }
+
+    window.addEventListener("storage", handlePresentationGuestJoin);
+
+    return () => {
+      window.removeEventListener("storage", handlePresentationGuestJoin);
+    };
+  }, [
+    aiChatMessageQuery,
+    currentRoomQuery,
+    mockScenario,
+    roomWaitingParticipantsQuery,
+  ]);
+
+  useEffect(() => {
+    if (mockScenario !== "presentation-guest") {
+      return;
+    }
+
+    function handlePresentationInvite(event: StorageEvent) {
+      if (event.key !== PRESENTATION_INVITES_STORAGE_KEY) {
+        return;
+      }
+
+      void Promise.all([
+        invitationQuery.refetch(),
+        aiChatMessageQuery.refetch(),
+      ]);
+    }
+
+    window.addEventListener("storage", handlePresentationInvite);
+
+    return () => {
+      window.removeEventListener("storage", handlePresentationInvite);
+    };
+  }, [aiChatMessageQuery, invitationQuery, mockScenario]);
+
+  useEffect(() => {
     if (invitationQuery.data === undefined) {
       return;
     }
@@ -1379,6 +1490,7 @@ export function MainPage() {
     setInvitationActionState(null);
     setStartButtonNotice(null);
     setIsStartRequestAccepted(false);
+    setSelectedPresentationTemplate(null);
   }, [activeSessionId]);
 
   useEffect(() => {
@@ -1393,6 +1505,7 @@ export function MainPage() {
   useEffect(() => {
     setStartButtonNotice(null);
     setIsStartRequestAccepted(false);
+    setSelectedPresentationTemplate(null);
   }, [waitingRoomCurrentRoom?.gameRoomId]);
 
   useEffect(() => {
@@ -1547,6 +1660,7 @@ export function MainPage() {
         invitationQuery.refetch(),
         aiChatSessionQuery.refetch(),
         aiChatMessageQuery.refetch(),
+        roomWaitingParticipantsQuery.refetch(),
       ]);
 
       if (
@@ -1596,6 +1710,11 @@ export function MainPage() {
         setStartButtonNotice(
           "게임 시작 요청을 보냈어요!",
         );
+        if (waitingRoomCurrentRoom && isPresentationMockScenario(mockScenario)) {
+          navigate(
+            `/rooms/${encodeURIComponent(waitingRoomCurrentRoom.gameRoomId)}/play?mock=${mockScenario}`,
+          );
+        }
         return;
       }
 
@@ -1719,7 +1838,23 @@ export function MainPage() {
   }
 
   function handleRoomCreateTemplateSelect(template: RoomCreateTemplateOption) {
+    if (mockScenario === "presentation-owner") {
+      setSelectedPresentationTemplate(template);
+      return;
+    }
+
     void submitAiChatMessage(buildRoomCreateTemplateConfirmationMessage(template));
+  }
+
+  function handleConfirmPresentationRoomCreate() {
+    if (!selectedPresentationTemplate) {
+      return;
+    }
+
+    void submitAiChatMessage(
+      buildRoomCreateTemplateConfirmationMessage(selectedPresentationTemplate),
+    );
+    setSelectedPresentationTemplate(null);
   }
 
   function handleInvitationAccept(invitation: GameRoomParticipant) {
@@ -1871,6 +2006,7 @@ export function MainPage() {
               shouldShowRoomCreateDifficultyUi={shouldShowRoomCreateDifficultyUi}
               shouldShowRoomCreateTemplateUi={shouldShowRoomCreateTemplateUi}
               roomCreateTemplates={roomCreateTemplates}
+              selectedPresentationTemplate={selectedPresentationTemplate}
               latestRoomCreateDifficulty={latestRoomCreateDifficulty}
               waitingRoomTransition={waitingRoomTransition}
               roomWaitingState={roomWaitingState}
@@ -1909,6 +2045,7 @@ export function MainPage() {
               onComposerSubmit={handleComposerSubmit}
               onSelectRoomCreateDifficulty={handleRoomCreateDifficultySelect}
               onSelectRoomCreateTemplate={handleRoomCreateTemplateSelect}
+              onConfirmPresentationRoomCreate={handleConfirmPresentationRoomCreate}
               onAcceptInvitation={handleInvitationAccept}
               onDenyInvitation={handleInvitationDeny}
               onRetryInvitationAction={() => {

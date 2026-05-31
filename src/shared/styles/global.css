@@ -758,6 +758,7 @@ select {
   color: #212121;
   font-size: 1rem;
   line-height: 1.55;
+  white-space: pre-line;
 }
 
 .main-message__bubble--error {
