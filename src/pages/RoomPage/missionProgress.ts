@@ -47,6 +47,40 @@ export const calculatorMissionSteps: CalculatorMissionStep[] = [
   },
 ];
 
+export const calculatorMissionStepSnippets = [
+  "a = input()\nb = input()",
+  "a = int(a)\nb = int(b)",
+  "op = input()",
+  [
+    "if op == '+':",
+    "    result = a + b",
+    "elif op == '-':",
+    "    result = a - b",
+    "elif op == '*':",
+    "    result = a * b",
+    "elif op == '/':",
+    "    result = a / b",
+  ].join("\n"),
+  "print(result)",
+];
+
+export function buildCompletedCalculatorCode(completedStepCount: number) {
+  return calculatorMissionStepSnippets
+    .slice(0, completedStepCount)
+    .join("\n\n");
+}
+
+export function buildCalculatorTypingFrame(
+  existingCode: string,
+  stepIndex: number,
+  typedCharacterCount: number,
+) {
+  const snippet = calculatorMissionStepSnippets[stepIndex] ?? "";
+  const separator = existingCode.trim().length > 0 ? "\n\n" : "";
+
+  return `${existingCode}${`${separator}${snippet}`.slice(0, typedCharacterCount)}`;
+}
+
 const stepValidators: Array<(code: string) => boolean> = [
   (code) =>
     /^\s*a\s*=\s*input\s*\(\s*\)\s*$/m.test(code) &&

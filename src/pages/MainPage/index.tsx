@@ -1246,10 +1246,14 @@ export function MainPage() {
     typeof window !== "undefined" &&
     new URLSearchParams(search).get("debug") === "scroll";
   const mockScenario = getMainPageMockScenario(search);
+  const presentationGuestNickname =
+    new URLSearchParams(search).get("guest") ?? undefined;
   const mainPageMockApi = mockScenario
-    ? createMainPageMockApi(mockScenario, mockInstanceId)
+    ? createMainPageMockApi(mockScenario, mockInstanceId, presentationGuestNickname)
     : null;
-  const effectiveUser = mockScenario ? getMainPageMockUser(mockScenario) : user;
+  const effectiveUser = mockScenario
+    ? getMainPageMockUser(mockScenario, presentationGuestNickname)
+    : user;
 
   const currentRoomQuery = useQuery({
     queryKey: ["main-page-current-room", effectiveUser?.userId, mockScenario],
@@ -1423,7 +1427,7 @@ export function MainPage() {
     }
 
     function handlePresentationGuestJoin(event: StorageEvent) {
-      if (event.key !== PRESENTATION_MOCK_STORAGE_KEY || event.newValue !== "true") {
+      if (event.key !== PRESENTATION_MOCK_STORAGE_KEY) {
         return;
       }
 

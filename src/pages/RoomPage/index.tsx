@@ -7,7 +7,10 @@ import { isRoomSessionUnavailable } from "../../features/realtime/roomSocketLife
 import { useRoomSocketLifecycle } from "../../features/realtime/useRoomSocketLifecycle";
 import { isPresentationMockScenario } from "../MainPage/mockMode";
 import {
+  buildCalculatorTypingFrame,
+  buildCompletedCalculatorCode,
   calculatorMissionSteps,
+  calculatorMissionStepSnippets,
   isCalculatorStepComplete,
   resolveMissionTurn,
 } from "./missionProgress";
@@ -43,7 +46,7 @@ type MissionFile = {
   content: string;
 };
 
-type AiMasterStep = "analysis" | "feedback" | "error";
+type AiMasterStep = "analysis" | "hint" | "error";
 type ResultModalState = "success" | "failure" | null;
 type StartCountdownValue = 5 | 4 | 3 | 2 | 1 | "START";
 
@@ -144,7 +147,7 @@ const teamMessages = [
 
 const aiMasterSteps: Array<{ id: AiMasterStep; label: string }> = [
   { id: "analysis", label: "코드 분석" },
-  { id: "feedback", label: "코드 피드백" },
+  { id: "hint", label: "힌트 보기" },
   { id: "error", label: "오류 피드백" },
 ];
 
@@ -165,6 +168,12 @@ const runnerFrames = [
 const currentUserId = "me";
 const currentTurnFileId = "main.py";
 const turnTimeLimitSeconds = 30;
+const aiAnalysisDurationMs = 10_000;
+const aiAnalysisProgressIntervalMs =
+  aiAnalysisDurationMs / aiAnalysisSteps.length;
+const autoTypingIntervalMs = 110;
+const autoTypingStartDelayMs = 1_600;
+const autoSubmitDelayMs = 500;
 const turnStartCodeByFile = Object.fromEntries(
   missionFiles.map((file) => [file.id, file.content]),
 );
@@ -199,13 +208,16 @@ export function RoomPage() {
   const [selectedFileId, setSelectedFileId] = useState(missionFiles[0].id);
   const [fileContents, setFileContents] =
     useState<Record<string, string>>(turnStartCodeByFile);
+  const fileContentsRef = useRef(fileContents);
   const [aiMasterStep, setAiMasterStep] = useState<AiMasterStep>("analysis");
-  const [isHintOpen, setIsHintOpen] = useState(false);
   const [isStartModalOpen, setIsStartModalOpen] = useState(true);
   const [startCountdown, setStartCountdown] =
     useState<StartCountdownValue>(5);
   const [resultModal, setResultModal] = useState<ResultModalState>(null);
   const [isAiJudging, setIsAiJudging] = useState(false);
+  const [hasErrorFeedback, setHasErrorFeedback] = useState(false);
+  const [isScriptedRelayActive, setIsScriptedRelayActive] = useState(false);
+  const [isAutoTyping, setIsAutoTyping] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(-1);
   const [currentTurnIndex, setCurrentTurnIndex] = useState(0);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -220,14 +232,19 @@ export function RoomPage() {
     useState(turnTimeLimitSeconds);
   const judgingTimerRef = useRef<number | null>(null);
   const analysisProgressTimerRef = useRef<number | null>(null);
+  const autoTypingTimerRef = useRef<number | null>(null);
+  const autoTypingStartTimerRef = useRef<number | null>(null);
+  const autoSubmitTimerRef = useRef<number | null>(null);
+  const autoRelayRunKeyRef = useRef<string | null>(null);
   const startTimerRef = useRef<number | null>(null);
   const timeoutHandledRef = useRef(false);
   const currentTurnUser = teamMembers[currentTurnIndex];
-  const isMyTurn =
-    isPresentationMock || currentTurnUser.id === currentUserId;
+  const isMyTurn = currentTurnUser.id === currentUserId;
   const isTurnExpired = remainingSeconds <= 0;
   const isTurnActionLocked =
     !isMyTurn ||
+    isScriptedRelayActive ||
+    isAutoTyping ||
     isAiJudging ||
     isTurnExpired ||
     isStartModalOpen ||
@@ -259,6 +276,16 @@ export function RoomPage() {
         remainingLives,
       });
       setRemainingLives(outcome.remainingLives);
+      if (isPresentationMock) {
+        const completedCode = buildCompletedCalculatorCode(currentStepIndex);
+
+        fileContentsRef.current = {
+          ...fileContentsRef.current,
+          [currentTurnFileId]: completedCode,
+        };
+        setFileContents(fileContentsRef.current);
+        setIsScriptedRelayActive(true);
+      }
 
       if (outcome.result === "failure") {
         setTurnNotice("팀 목숨을 모두 사용했어요.");
@@ -273,7 +300,13 @@ export function RoomPage() {
       );
       startNextTurn(outcome.nextTurnIndex);
     },
-    [currentStepIndex, currentTurnIndex, remainingLives, startNextTurn],
+    [
+      currentStepIndex,
+      currentTurnIndex,
+      isPresentationMock,
+      remainingLives,
+      startNextTurn,
+    ],
   );
 
   const completeCurrentStep = useCallback(() => {
@@ -292,11 +325,17 @@ export function RoomPage() {
     }
 
     setCurrentStepIndex(outcome.nextStepIndex);
+    setAiMasterStep("analysis");
+    setHasErrorFeedback(false);
     setTurnNotice(
       `${currentStepIndex + 1}단계를 완료했어요. ${teamMembers[outcome.nextTurnIndex].name}님이 ${outcome.nextStepIndex + 1}단계를 작성합니다.`,
     );
     startNextTurn(outcome.nextTurnIndex);
   }, [currentStepIndex, currentTurnIndex, remainingLives, startNextTurn]);
+
+  useEffect(() => {
+    fileContentsRef.current = fileContents;
+  }, [fileContents]);
 
   useEffect(() => {
     return () => {
@@ -310,6 +349,18 @@ export function RoomPage() {
 
       if (startTimerRef.current !== null) {
         window.clearInterval(startTimerRef.current);
+      }
+
+      if (autoTypingTimerRef.current !== null) {
+        window.clearInterval(autoTypingTimerRef.current);
+      }
+
+      if (autoTypingStartTimerRef.current !== null) {
+        window.clearTimeout(autoTypingStartTimerRef.current);
+      }
+
+      if (autoSubmitTimerRef.current !== null) {
+        window.clearTimeout(autoSubmitTimerRef.current);
       }
     };
   }, []);
@@ -388,13 +439,9 @@ export function RoomPage() {
     resultModal,
   ]);
 
-  const handleSubmitTurn = () => {
-    if (isTurnActionLocked) {
-      return;
-    }
-
+  const submitCodeForAnalysis = useCallback((codeToJudge: string) => {
     setAiMasterStep("analysis");
-    setIsHintOpen(false);
+    setHasErrorFeedback(false);
     setIsAiJudging(true);
     setAnalysisProgress(0);
 
@@ -410,7 +457,7 @@ export function RoomPage() {
       setAnalysisProgress((currentProgress) =>
         Math.min(currentProgress + 1, aiAnalysisSteps.length - 1),
       );
-    }, 650);
+    }, aiAnalysisProgressIntervalMs);
 
     judgingTimerRef.current = window.setTimeout(() => {
       if (analysisProgressTimerRef.current !== null) {
@@ -421,18 +468,112 @@ export function RoomPage() {
       setIsAiJudging(false);
       const isCurrentStepComplete = isCalculatorStepComplete(
         currentStepIndex,
-        selectedCode,
+        codeToJudge,
       );
 
       if (isCurrentStepComplete) {
         completeCurrentStep();
       } else {
+        setHasErrorFeedback(true);
         setAiMasterStep("error");
         failCurrentTurn("submit");
       }
 
       judgingTimerRef.current = null;
-    }, 2800);
+    }, aiAnalysisDurationMs);
+  }, [completeCurrentStep, currentStepIndex, failCurrentTurn]);
+
+  useEffect(() => {
+    if (
+      !isPresentationMock ||
+      !isScriptedRelayActive ||
+      isStartModalOpen ||
+      isAiJudging ||
+      resultModal !== null
+    ) {
+      return;
+    }
+
+    const runKey = `${currentTurnIndex}:${currentStepIndex}`;
+
+    if (autoRelayRunKeyRef.current === runKey) {
+      return;
+    }
+
+    autoRelayRunKeyRef.current = runKey;
+    const currentWriter = teamMembers[currentTurnIndex];
+    const currentSnippet = calculatorMissionStepSnippets[currentStepIndex];
+    const existingCode = fileContentsRef.current[currentTurnFileId] ?? "";
+    const separator = existingCode.trim().length > 0 ? "\n\n" : "";
+    const appendedSnippet = `${separator}${currentSnippet}`;
+    const completedCode = `${existingCode}${appendedSnippet}`;
+    let typedCharacterCount = 0;
+
+    setTurnNotice(
+      `${currentWriter.name}님이 힌트를 확인하고 ${currentStepIndex + 1}단계를 작성합니다.`,
+    );
+
+    autoTypingStartTimerRef.current = window.setTimeout(() => {
+      setAiMasterStep("hint");
+      setIsAutoTyping(true);
+      autoTypingTimerRef.current = window.setInterval(() => {
+        typedCharacterCount += 1;
+        setFileContents((currentContents) => ({
+          ...currentContents,
+          [currentTurnFileId]: buildCalculatorTypingFrame(
+            existingCode,
+            currentStepIndex,
+            typedCharacterCount,
+          ),
+        }));
+
+        if (typedCharacterCount < appendedSnippet.length) {
+          return;
+        }
+
+        if (autoTypingTimerRef.current !== null) {
+          window.clearInterval(autoTypingTimerRef.current);
+          autoTypingTimerRef.current = null;
+        }
+
+        setIsAutoTyping(false);
+        setTurnNotice(`${currentWriter.name}님이 코드를 제출했습니다.`);
+        autoSubmitTimerRef.current = window.setTimeout(() => {
+          submitCodeForAnalysis(completedCode);
+          autoSubmitTimerRef.current = null;
+        }, autoSubmitDelayMs);
+      }, autoTypingIntervalMs);
+      autoTypingStartTimerRef.current = null;
+    }, autoTypingStartDelayMs);
+
+    return () => {
+      if (autoTypingStartTimerRef.current !== null) {
+        window.clearTimeout(autoTypingStartTimerRef.current);
+        autoTypingStartTimerRef.current = null;
+      }
+
+      if (autoTypingTimerRef.current !== null) {
+        window.clearInterval(autoTypingTimerRef.current);
+        autoTypingTimerRef.current = null;
+      }
+    };
+  }, [
+    currentStepIndex,
+    currentTurnIndex,
+    isAiJudging,
+    isPresentationMock,
+    isScriptedRelayActive,
+    isStartModalOpen,
+    resultModal,
+    submitCodeForAnalysis,
+  ]);
+
+  const handleSubmitTurn = () => {
+    if (isTurnActionLocked) {
+      return;
+    }
+
+    submitCodeForAnalysis(selectedCode);
   };
 
   return (
@@ -630,9 +771,10 @@ export function RoomPage() {
                 return (
                 <article className={`progress-step ${stepState}`} key={step.id}>
                   <span className="step-number">{step.id}</span>
-                  <span className="step-icon">{stepState === "done" ? "✓" : "✣"}</span>
-                  <strong>{step.title}</strong>
-                  <p>{step.description}</p>
+                  <div className="step-content">
+                    <span className="step-icon">{stepState === "done" ? "✓" : "✣"}</span>
+                    <strong>{step.title}</strong>
+                  </div>
                   <em>
                     {stepState === "done"
                       ? "완료"
@@ -653,19 +795,23 @@ export function RoomPage() {
               <span>🤖</span> AI 마스터
             </h3>
             <div className="ai-tabs">
-              {aiMasterSteps.map((step) => (
+              {aiMasterSteps.map((step) => {
+                const isDisabled = step.id === "error" && !hasErrorFeedback;
+
+                return (
                 <button
                   className={aiMasterStep === step.id ? "active" : ""}
+                  disabled={isDisabled}
                   key={step.id}
                   type="button"
                   onClick={() => {
                     setAiMasterStep(step.id);
-                    setIsHintOpen(false);
                   }}
                 >
                   {step.label}
                 </button>
-              ))}
+                );
+              })}
             </div>
 
             <div className="ai-content">
@@ -728,19 +874,18 @@ export function RoomPage() {
                 </div>
               ) : null}
 
-              {aiMasterStep === "feedback" ? (
+              {aiMasterStep === "hint" ? (
                 <div className="feedback-view">
                   <img className="floating-mascot" src={catIdeaImg} alt="힌트 캐릭터" />
                   <div className="feedback-card">
-                    <strong>코드를 분석했어요!</strong>
+                    <strong>💡 힌트 보기</strong>
                     <p>
-                      현재 단계 구현이 확인됐어요. 다음 작성자가 이어서 계산기
-                      로직을 완성할 수 있습니다.
+                      현재 진행 중인 단계는{" "}
+                      {calculatorMissionSteps[currentStepIndex].title}입니다.
                     </p>
+                    <hr />
+                    <p>{calculatorMissionSteps[currentStepIndex].description}</p>
                   </div>
-                  <HintPanel open={isHintOpen}>
-                    현재 진행 중인 단계는 {calculatorMissionSteps[currentStepIndex].title}입니다.
-                  </HintPanel>
                 </div>
               ) : null}
 
@@ -756,21 +901,10 @@ export function RoomPage() {
                     <hr />
                     <b>💡 수정 방향</b>
                     <p>{calculatorMissionSteps[currentStepIndex].description}</p>
-                    <HintPanel open={isHintOpen}>
-                      단계별 예시를 참고해 누락된 코드를 추가해보세요.
-                    </HintPanel>
                   </div>
                 </div>
               ) : null}
             </div>
-
-            {aiMasterStep !== "analysis" ? (
-              <div className="ai-footer">
-                <button type="button" onClick={() => setIsHintOpen((open) => !open)}>
-                  💡 {isHintOpen ? "힌트 닫기" : "힌트 보기"}
-                </button>
-              </div>
-            ) : null}
           </section>
 
           <section className="panel chat-card">
@@ -824,21 +958,6 @@ export function RoomPage() {
           order={teamMembers}
         />
       ) : null}
-    </div>
-  );
-}
-
-function HintPanel({
-  children,
-  open,
-}: {
-  children: React.ReactNode;
-  open: boolean;
-}) {
-  return (
-    <div className={`hint-panel ${open ? "open" : ""}`}>
-      <strong>💡 힌트 보기</strong>
-      <p>{children}</p>
     </div>
   );
 }

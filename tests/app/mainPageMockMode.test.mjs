@@ -97,10 +97,10 @@ test("presentation guest scenario accepts an invitation and shows the completed 
 
     assert.equal(response.requestType, "ROOM_JOIN");
     assert.equal(room.myRole, "PARTICIPANT");
-    assert.equal(room.joinedParticipantCount, 5);
+    assert.equal(room.joinedParticipantCount, 2);
     assert.deepEqual(
       participants.map((participant) => participant.nickname),
-      ["현하", "성민", "정화", "현", "수현"],
+      ["현하", "성민"],
     );
   } finally {
     globalThis.window = previousWindow;
@@ -167,8 +167,71 @@ test("presentation guest acceptance updates the owner waiting room and appends a
     );
     assert.equal(
       ownerMessages.at(-1)?.content,
-      "'성민'님이 입장했습니다. 게임을 시작할 수 있어요.",
+      "'성민'님이 입장했습니다.",
     );
+  } finally {
+    globalThis.window = previousWindow;
+  }
+});
+
+test("presentation guests join the owner waiting room one by one", async () => {
+  const previousWindow = globalThis.window;
+  const storage = new Map();
+
+  globalThis.window = {
+    localStorage: {
+      getItem(key) {
+        return storage.get(key) ?? null;
+      },
+      removeItem(key) {
+        storage.delete(key);
+      },
+      setItem(key, value) {
+        storage.set(key, value);
+      },
+    },
+  };
+
+  try {
+    const ownerApi = createMainPageMockApi("presentation-owner");
+    const [ownerSession] = await ownerApi.getSessions("presentation-owner");
+
+    await ownerApi.sendMessage(ownerSession.aiChatSessionId, { message: "방 만들어줘" });
+    await ownerApi.sendMessage(ownerSession.aiChatSessionId, {
+      message: "쉬운 난이도로 방 만들어줘.",
+    });
+    await ownerApi.sendMessage(ownerSession.aiChatSessionId, {
+      message: "문자열 뒤집기 템플릿으로 진행할게요.",
+    });
+    await ownerApi.sendMessage(ownerSession.aiChatSessionId, {
+      message: "성민, 수현, 현, 정화 초대해줘.",
+    });
+
+    for (const [index, nickname] of ["성민", "수현", "현", "정화"].entries()) {
+      const guestApi = createMainPageMockApi(
+        "presentation-guest",
+        `presentation-guest-${nickname}`,
+        nickname,
+      );
+      const [guestSession] = await guestApi.getSessions(nickname);
+
+      assert.equal((await guestApi.getInvitedParticipants(nickname)).length, 1);
+      await guestApi.sendMessage(guestSession.aiChatSessionId, {
+        message: "초대 수락할게요.",
+      });
+
+      const [ownerRoom] = await ownerApi.getCurrentRooms("presentation-owner");
+      const ownerParticipants = await ownerApi.getRoomParticipants(ownerRoom.gameRoomId);
+
+      assert.equal(ownerRoom.joinedParticipantCount, index + 2);
+      assert.deepEqual(
+        ownerParticipants.map((participant) => participant.nickname),
+        ["현하", ...["성민", "수현", "현", "정화"].slice(0, index + 1)],
+      );
+    }
+
+    const ownerMessages = await ownerApi.getMessages(ownerSession.aiChatSessionId);
+    assert.equal(ownerMessages.at(-1)?.content, "'정화'님이 입장했습니다. 모든 참가자가 입장했어요.");
   } finally {
     globalThis.window = previousWindow;
   }

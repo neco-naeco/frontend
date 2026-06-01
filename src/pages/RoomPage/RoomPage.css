@@ -417,7 +417,7 @@
 
 .progress-step {
   position: relative;
-  padding: 30px 12px 14px;
+  padding: 22px 12px 14px;
   border: 1px solid #e2e8dc;
   border-radius: 4px;
   text-align: center;
@@ -453,22 +453,21 @@
   color: #7aa55e;
 }
 
-.progress-step strong {
-  margin-top: 6px;
+.step-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.step-content strong {
   font-size: 14px;
 }
 
-.progress-step p {
-  flex: 1;
-  margin: 8px 0 0;
-  color: #768173;
-  font-size: 11px;
-  line-height: 1.45;
-  display: flex;
-  align-items: center;
-}
-
 .progress-step em {
+  margin-top: auto;
   min-width: 42px;
   padding: 3px 8px;
   border-radius: 999px;
@@ -531,6 +530,11 @@
   border-color: #94bf78;
   background: #f1faeb;
   color: #5f9744;
+}
+
+.ai-tabs button:disabled {
+  cursor: default;
+  opacity: 0.42;
 }
 
 .ai-content {
@@ -677,57 +681,6 @@
   border: 0;
   border-top: 1px dashed #f2c7c7;
   margin: 14px 0;
-}
-
-.hint-panel {
-  max-height: 0;
-  opacity: 0;
-  margin-top: 0;
-  border: 1px solid #f1dfca;
-  border-radius: 12px;
-  background: #fffaf3;
-  padding: 0 24px;
-  overflow: hidden;
-  transition: 0.22s ease;
-}
-
-.hint-panel.open {
-  max-height: 170px;
-  opacity: 1;
-  margin-top: 16px;
-  padding: 15px 24px 18px;
-}
-
-.hint-panel strong {
-  color: #75a766;
-  font-size: 18px;
-}
-
-.hint-panel p {
-  margin: 12px 0 0 34px;
-  font-size: 13px;
-  font-weight: 900;
-  line-height: 1.65;
-}
-
-.ai-footer {
-  min-height: 62px;
-  padding-top: 10px;
-  display: flex;
-  align-items: flex-end;
-  justify-content: flex-end;
-}
-
-.ai-footer button {
-  min-width: 156px;
-  height: 52px;
-  border: 1px solid #f1dfca;
-  border-radius: 12px;
-  background: #fffaf3;
-  color: #75a766;
-  font-size: 17px;
-  font-weight: 900;
-  cursor: pointer;
 }
 
 .chat-card h3 {
