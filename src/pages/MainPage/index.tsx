@@ -1947,7 +1947,7 @@ export function MainPage() {
       <div className="main-screen__frame">
         <header className="main-screen__topbar">
           <span className="signup-screen__logo">
-            네코네코<span className="signup-screen__logo-paw">✿</span>
+            네코내코<span className="signup-screen__logo-paw">🐾</span>
           </span>
 
           <div className="main-screen__topbar-actions">

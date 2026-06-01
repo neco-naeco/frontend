@@ -579,8 +579,10 @@ export function RoomPage() {
   return (
     <div className="room-page">
       <header className="room-header">
-        <div className="room-logo" aria-label="네코네코 홈">
-          네코네코 <span>☘</span>
+        <div className="room-logo" aria-label="네코내코 홈">
+          <span className="signup-screen__logo">
+            네코내코<span className="signup-screen__logo-paw">🐾</span>
+          </span>
         </div>
 
         <div className="room-status">

@@ -59,19 +59,6 @@
 
 .room-logo {
   justify-self: center;
-  color: #80ba55;
-  font-size: 35px;
-  font-weight: 900;
-  text-shadow:
-    -1px -1px 0 #437e36,
-    1px -1px 0 #437e36,
-    -1px 1px 0 #437e36,
-    1px 1px 0 #437e36;
-}
-
-.room-logo span {
-  color: #6aa848;
-  font-size: 24px;
 }
 
 .room-status,
