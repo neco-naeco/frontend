@@ -227,6 +227,16 @@ export type MissionProjectStructure = {
   files: MissionProjectFile[];
 };
 
+export type MissionStep = {
+  gameRoomMissionStepId: string;
+  missionTemplateStepId: string;
+  stepOrder: number;
+  title: string;
+  description: string;
+  status: GameRoomMissionStepStatus;
+  targetFilePath?: string;
+};
+
 export type MissionState = {
   missionId: string;
   missionTemplateId?: string;
@@ -240,6 +250,10 @@ export type MissionState = {
   difficulty?: MissionDifficulty;
   strikeCount?: number;
   status?: string;
+  stepOrder?: number | null;
+  stepTitle?: string;
+  stepDescription?: string;
+  steps?: MissionStep[];
   projectStructure?: MissionProjectStructure;
 };
 
