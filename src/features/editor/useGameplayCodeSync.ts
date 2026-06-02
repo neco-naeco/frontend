@@ -71,7 +71,7 @@ export function useGameplayCodeSync({
           userId: payload.emitSnapshot.userId,
           sessionId: payload.emitSnapshot.sessionId,
           filePath: payload.filePath,
-          codeDelta: payload.codeDelta,
+          content: pending.currentText,
         });
       },
     });

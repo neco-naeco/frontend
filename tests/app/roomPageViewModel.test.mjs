@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildMissionFileTabs,
+  buildMissionProgressSteps,
   buildParticipantRows,
   buildStrikeHeartDisplay,
   canEditGameplay,
@@ -103,6 +104,13 @@ test("computeRemainingSeconds and formatTurnTimerText derive timer display", () 
   assert.equal(formatTurnTimerText(125), "02 : 05");
 });
 
+test("computeRemainingSeconds applies a countdown offset when gameplay starts after intro", () => {
+  const deadlineAt = "2026-05-25T10:00:30.000Z";
+  const now = Date.parse("2026-05-25T10:00:06.000Z");
+
+  assert.equal(computeRemainingSeconds(deadlineAt, now, 6000), 30);
+});
+
 test("buildStrikeHeartDisplay computes remaining team lives", () => {
   assert.deepEqual(buildStrikeHeartDisplay(1, 3), {
     remaining: 2,
@@ -167,6 +175,38 @@ test("getMissionDisplayCopy exposes explicit fallback copy when description is m
       description: "미션 설명이 아직 도착하지 않았습니다.",
     },
   );
+});
+
+test("buildMissionProgressSteps renders the full mission step list when available", () => {
+  const steps = buildMissionProgressSteps({
+    missionId: "mission-1",
+    gameRoomMissionStepId: "step-2",
+    currentStepStatus: "IN_PROGRESS",
+    steps: [
+      {
+        gameRoomMissionStepId: "step-1",
+        missionTemplateStepId: "template-step-1",
+        stepOrder: 1,
+        title: "입력 파싱",
+        description: "첫 줄과 연산자를 읽어옵니다.",
+        status: "CLEARED",
+      },
+      {
+        gameRoomMissionStepId: "step-2",
+        missionTemplateStepId: "template-step-2",
+        stepOrder: 2,
+        title: "계산 수행",
+        description: "연산 결과를 계산합니다.",
+        status: "IN_PROGRESS",
+      },
+    ],
+  });
+
+  assert.equal(steps.length, 2);
+  assert.equal(steps[0].stepOrder, 1);
+  assert.equal(steps[0].isActive, false);
+  assert.equal(steps[1].title, "계산 수행");
+  assert.equal(steps[1].isActive, true);
 });
 
 test("getCurrentTurnParticipantLabel reports the current turn owner", () => {

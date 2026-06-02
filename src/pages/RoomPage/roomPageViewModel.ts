@@ -1,6 +1,7 @@
 import type {
   GameState,
   MissionState,
+  MissionStep,
   RoomWaitingParticipant,
   TurnEvaluationResult,
 } from "../../shared/types/domain";
@@ -28,6 +29,15 @@ export type StrikeHeartDisplay = {
 export type MissionDisplayCopy = {
   title: string;
   description: string;
+};
+
+export type MissionProgressStep = {
+  key: string;
+  stepOrder: number;
+  title: string;
+  description: string;
+  status: MissionStep["status"] | MissionState["currentStepStatus"];
+  isActive: boolean;
 };
 
 export type EvaluationDisplayCopy = {
@@ -136,6 +146,7 @@ export function canEditGameplay(
 export function computeRemainingSeconds(
   deadlineAt: string | undefined,
   now = Date.now(),
+  extraMilliseconds = 0,
 ) {
   if (!deadlineAt) {
     return 0;
@@ -147,7 +158,7 @@ export function computeRemainingSeconds(
     return 0;
   }
 
-  return Math.max(0, Math.ceil((deadlineMs - now) / 1000));
+  return Math.max(0, Math.ceil((deadlineMs + extraMilliseconds - now) / 1000));
 }
 
 export function formatTurnTimerText(remainingSeconds: number) {
@@ -215,6 +226,41 @@ export function getMissionDisplayCopy(
         ? "미션 설명이 아직 도착하지 않았습니다."
         : "실시간 미션 데이터가 연결되면 설명이 표시됩니다."),
   };
+}
+
+export function buildMissionProgressSteps(
+  missionState: MissionState | null,
+): MissionProgressStep[] {
+  const listedSteps = missionState?.steps ?? [];
+
+  if (listedSteps.length > 0) {
+    return listedSteps.map((step) => ({
+      key: step.gameRoomMissionStepId || `${step.stepOrder}`,
+      stepOrder: step.stepOrder,
+      title: step.title || `Step ${step.stepOrder}`,
+      description: step.description || "Step description is not available yet.",
+      status: step.status,
+      isActive: step.gameRoomMissionStepId === missionState?.gameRoomMissionStepId,
+    }));
+  }
+
+  if (!missionState) {
+    return [];
+  }
+
+  return [
+    {
+      key: missionState.currentStepId ?? missionState.missionId,
+      stepOrder: missionState.stepOrder ?? 1,
+      title: missionState.stepTitle?.trim() || missionState.title?.trim() || "Current step",
+      description:
+        missionState.stepDescription?.trim() ||
+        missionState.description?.trim() ||
+        "Step description is not available yet.",
+      status: missionState.currentStepStatus,
+      isActive: true,
+    },
+  ];
 }
 
 export function getCurrentTurnParticipantLabel(

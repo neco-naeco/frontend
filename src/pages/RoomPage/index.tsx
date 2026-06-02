@@ -35,6 +35,7 @@ import rabbitImg from "../../assets/characters/rabbit.png";
 import whiteImg from "../../assets/characters/white.png";
 import {
   buildMissionFileTabs,
+  buildMissionProgressSteps,
   buildParticipantRows,
   buildStrikeHeartDisplay,
   canEditGameplay,
@@ -54,6 +55,10 @@ import {
 
 type AiMasterStep = "analysis" | "feedback" | "error";
 type StartCountdownValue = 5 | 4 | 3 | 2 | 1 | "START";
+const startCountdownSequence: StartCountdownValue[] = [5, 4, 3, 2, 1, "START"];
+const startCountdownStepMs = 1000;
+const startCountdownTimerOffsetMs =
+  startCountdownSequence.length * startCountdownStepMs;
 
 const participantAvatarImages = [
   whiteImg,
@@ -130,6 +135,7 @@ export function RoomPage() {
     useState<StartCountdownValue>(5);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const startTimerRef = useRef<number | null>(null);
+  const countdownAdjustedTurnIdRef = useRef<string | null>(null);
 
   const fileTabs = useMemo(
     () => buildMissionFileTabs(missionState, editorFiles),
@@ -170,6 +176,7 @@ export function RoomPage() {
   );
   const { title: missionTitle, description: missionDescription } =
     getMissionDisplayCopy(missionState);
+  const missionProgressSteps = buildMissionProgressSteps(missionState);
   const timerText = formatTurnTimerText(remainingSeconds);
   const hasGameplayData = Boolean(gameState && missionState);
   const currentTurnLabel = getCurrentTurnParticipantLabel(participantRows);
@@ -183,6 +190,10 @@ export function RoomPage() {
     missionTemplateStepId: missionState?.missionTemplateStepId,
   });
   const cachedHint = getCachedHint(hintsByStepId, hintCacheKey);
+  const turnTimerOffsetMs =
+    countdownAdjustedTurnIdRef.current === turnState?.turnId
+      ? startCountdownTimerOffsetMs
+      : 0;
 
   const { trackLocalEditorChange, flushPendingCodeChanges } = useGameplayCodeSync({
     gameRoomId,
@@ -194,20 +205,56 @@ export function RoomPage() {
   });
 
   useEffect(() => {
+    if (!turnState?.turnId) {
+      countdownAdjustedTurnIdRef.current = null;
+      return;
+    }
+
+    if (isMissionGuideOpen) {
+      countdownAdjustedTurnIdRef.current = turnState.turnId;
+      return;
+    }
+
+    if (countdownAdjustedTurnIdRef.current !== turnState.turnId) {
+      countdownAdjustedTurnIdRef.current = null;
+    }
+  }, [isMissionGuideOpen, turnState?.turnId]);
+
+  useEffect(() => {
     if (!turnState?.deadlineAt) {
       setRemainingSeconds(0);
       return;
     }
 
+    if (isMissionGuideOpen) {
+      setRemainingSeconds(
+        turnState.timeLimitSeconds ??
+          computeRemainingSeconds(turnState.deadlineAt, Date.now(), turnTimerOffsetMs),
+      );
+      return;
+    }
+
     const updateRemainingTime = () => {
-      setRemainingSeconds(computeRemainingSeconds(turnState.deadlineAt));
+      setRemainingSeconds(
+        computeRemainingSeconds(
+          turnState.deadlineAt,
+          Date.now(),
+          turnTimerOffsetMs,
+        ),
+      );
     };
 
     updateRemainingTime();
     const timerId = window.setInterval(updateRemainingTime, 250);
 
     return () => window.clearInterval(timerId);
-  }, [turnState?.deadlineAt, turnState?.turnId]);
+  }, [
+    isMissionGuideOpen,
+    turnState?.deadlineAt,
+    turnState?.timeLimitSeconds,
+    turnState?.turnId,
+    turnTimerOffsetMs,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -222,15 +269,14 @@ export function RoomPage() {
       return;
     }
 
-    const sequence: StartCountdownValue[] = [5, 4, 3, 2, 1, "START"];
     let sequenceIndex = 0;
-    setStartCountdown(sequence[sequenceIndex]);
+    setStartCountdown(startCountdownSequence[sequenceIndex]);
 
     startTimerRef.current = window.setInterval(() => {
       sequenceIndex += 1;
 
-      if (sequenceIndex < sequence.length) {
-        setStartCountdown(sequence[sequenceIndex]);
+      if (sequenceIndex < startCountdownSequence.length) {
+        setStartCountdown(startCountdownSequence[sequenceIndex]);
         return;
       }
 
@@ -246,7 +292,7 @@ export function RoomPage() {
           showMissionGuideModal: false,
         },
       }));
-    }, 1000);
+    }, startCountdownStepMs);
 
     return () => {
       if (startTimerRef.current !== null) {
@@ -560,23 +606,24 @@ export function RoomPage() {
           <section className="panel progress-panel">
             <h3>미션 진행도</h3>
             <div className="progress-steps">
-              <article
-                className={`progress-step ${
-                  missionState?.currentStepStatus === "IN_PROGRESS"
-                    ? "active"
-                    : missionState?.currentStepStatus === "CLEARED"
-                      ? "done"
-                      : "waiting"
-                }`}
-              >
-                <span className="step-number">1</span>
-                <span className="step-icon">✣</span>
-                <strong>{missionTitle}</strong>
-                <p>{missionDescription}</p>
-                <em>
-                  {getMissionStepStatusLabel(missionState?.currentStepStatus)}
-                </em>
-              </article>
+              {missionProgressSteps.map((step) => (
+                <article
+                  className={`progress-step ${
+                    step.status === "IN_PROGRESS"
+                      ? "active"
+                      : step.status === "CLEARED"
+                        ? "done"
+                        : "waiting"
+                  }`}
+                  key={step.key}
+                >
+                  <span className="step-number">{step.stepOrder}</span>
+                  <span className="step-icon">{step.isActive ? "✣" : "•"}</span>
+                  <strong>{step.title}</strong>
+                  <p>{step.description}</p>
+                  <em>{getMissionStepStatusLabel(step.status)}</em>
+                </article>
+              ))}
             </div>
           </section>
         </section>
