@@ -394,6 +394,41 @@
   gap: 10px;
 }
 
+.editor-status-panel {
+  margin: 0;
+  padding: 12px 24px 14px;
+  border-top: 1px solid #eef3ea;
+  background: #fbfdf8;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.editor-status-item {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #e1e9dc;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.editor-status-item dt {
+  color: #7f8d78;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.editor-status-item dd {
+  min-width: 0;
+  margin: 5px 0 0;
+  color: #31402c;
+  font-size: 12px;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .submit-button,
 .reset-button {
   height: 38px;
@@ -438,6 +473,62 @@
   padding: 24px 30px;
   display: flex;
   flex-direction: column;
+}
+
+.progress-summary {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(260px, 1fr);
+  gap: 14px;
+}
+
+.progress-summary__current,
+.progress-summary__stats div {
+  border: 1px solid #e3eadf;
+  border-radius: 6px;
+  background: #fbfdf8;
+}
+
+.progress-summary__current {
+  min-width: 0;
+  padding: 13px 16px;
+  display: grid;
+  gap: 5px;
+}
+
+.progress-summary__current span,
+.progress-summary__stats dt {
+  color: #77866f;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.progress-summary__current strong {
+  min-width: 0;
+  color: #33442d;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-summary__stats {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.progress-summary__stats div {
+  padding: 10px 8px;
+  text-align: center;
+}
+
+.progress-summary__stats dd {
+  margin: 4px 0 0;
+  color: #5d8f45;
+  font-size: 14px;
+  font-weight: 900;
 }
 
 .progress-steps {
@@ -786,6 +877,57 @@
 
 .chat-card h3 {
   font-size: 15px;
+}
+
+.chat-card > p {
+  margin: 14px 0 0;
+  color: #7b8675;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.55;
+}
+
+.chat-preview {
+  margin-top: 18px;
+  display: grid;
+  gap: 10px;
+}
+
+.chat-preview__message {
+  padding: 13px 14px;
+  border: 1px solid #e2eadc;
+  border-radius: 8px;
+  background: #fbfdf8;
+}
+
+.chat-preview__message strong {
+  color: #5f8e4d;
+  font-size: 12px;
+}
+
+.chat-preview__message p {
+  margin: 6px 0 0;
+  color: #42513d;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.55;
+}
+
+.chat-readiness {
+  margin-top: auto;
+  padding-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chat-readiness span {
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: #eef5ea;
+  color: #66845a;
+  font-size: 10px;
+  font-weight: 900;
 }
 
 .messages {
@@ -1223,6 +1365,11 @@
   .progress-steps {
     grid-template-columns: repeat(2, minmax(180px, 1fr));
   }
+
+  .editor-status-panel,
+  .progress-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 720px) {
@@ -1261,6 +1408,12 @@
   }
 
   .progress-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .editor-status-panel,
+  .progress-summary,
+  .progress-summary__stats {
     grid-template-columns: 1fr;
   }
 
