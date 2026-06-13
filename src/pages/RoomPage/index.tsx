@@ -781,8 +781,112 @@ function EditorPanel({
           ↺ 초기화
         </button>
       </div>
+      <EditorStatusPanel
+        activeFileReadonly={activeFileReadonly}
+        canEditTurn={canEditTurn}
+        canMutateActiveFile={canMutateActiveFile}
+        isEditorReadOnly={isEditorReadOnly}
+        isTurnActionLocked={isTurnActionLocked}
+        selectedCode={selectedCode}
+        selectedFileName={selectedFileName}
+        turnSubmissionPending={turnSubmissionPending}
+      />
     </section>
   );
+}
+
+function EditorStatusPanel({
+  activeFileReadonly,
+  canEditTurn,
+  canMutateActiveFile,
+  isEditorReadOnly,
+  isTurnActionLocked,
+  selectedCode,
+  selectedFileName,
+  turnSubmissionPending,
+}: {
+  activeFileReadonly: boolean | undefined;
+  canEditTurn: boolean;
+  canMutateActiveFile: boolean;
+  isEditorReadOnly: boolean;
+  isTurnActionLocked: boolean;
+  selectedCode: string;
+  selectedFileName: string;
+  turnSubmissionPending: boolean;
+}) {
+  const lineCount = selectedCode.length === 0 ? 0 : selectedCode.split("\n").length;
+  const characterCount = selectedCode.length;
+  const editState = getEditorEditStateLabel({
+    activeFileReadonly,
+    canEditTurn,
+    canMutateActiveFile,
+    isEditorReadOnly,
+    isTurnActionLocked,
+    turnSubmissionPending,
+  });
+  const statusItems = [
+    {
+      label: "현재 파일",
+      value: selectedFileName,
+    },
+    {
+      label: "코드 라인",
+      value: `${lineCount}줄`,
+    },
+    {
+      label: "문자 수",
+      value: `${characterCount}자`,
+    },
+    {
+      label: "편집 상태",
+      value: editState,
+    },
+  ];
+
+  return (
+    <dl className="editor-status-panel" aria-label="에디터 상태">
+      {statusItems.map((item) => (
+        <div className="editor-status-item" key={item.label}>
+          <dt>{item.label}</dt>
+          <dd>{item.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function getEditorEditStateLabel({
+  activeFileReadonly,
+  canEditTurn,
+  canMutateActiveFile,
+  isEditorReadOnly,
+  isTurnActionLocked,
+  turnSubmissionPending,
+}: {
+  activeFileReadonly: boolean | undefined;
+  canEditTurn: boolean;
+  canMutateActiveFile: boolean;
+  isEditorReadOnly: boolean;
+  isTurnActionLocked: boolean;
+  turnSubmissionPending: boolean;
+}) {
+  if (turnSubmissionPending) {
+    return "제출 처리 중";
+  }
+
+  if (activeFileReadonly) {
+    return "읽기 전용";
+  }
+
+  if (!canEditTurn) {
+    return "턴 대기";
+  }
+
+  if (!canMutateActiveFile || isEditorReadOnly || isTurnActionLocked) {
+    return "잠김";
+  }
+
+  return "편집 가능";
 }
 
 function ProgressPanel({
@@ -790,9 +894,27 @@ function ProgressPanel({
 }: {
   missionProgressSteps: MissionProgressStep[];
 }) {
+  const completedStepCount = missionProgressSteps.filter(
+    (step) => step.status === "CLEARED",
+  ).length;
+  const activeStep = missionProgressSteps.find((step) => step.isActive);
+  const waitingStepCount = missionProgressSteps.filter(
+    (step) => step.status === "READY" || step.status === "LOCKED",
+  ).length;
+  const failedStepCount = missionProgressSteps.filter(
+    (step) => step.status === "FAILED",
+  ).length;
+
   return (
     <section className="panel progress-panel">
       <h3>미션 진행도</h3>
+      <MissionProgressSummary
+        activeStepTitle={activeStep?.title ?? null}
+        completedStepCount={completedStepCount}
+        failedStepCount={failedStepCount}
+        totalStepCount={missionProgressSteps.length}
+        waitingStepCount={waitingStepCount}
+      />
       <div className="progress-steps">
         {missionProgressSteps.length > 0 ? (
           missionProgressSteps.map((step) => (
@@ -818,6 +940,56 @@ function ProgressPanel({
         )}
       </div>
     </section>
+  );
+}
+
+function MissionProgressSummary({
+  activeStepTitle,
+  completedStepCount,
+  failedStepCount,
+  totalStepCount,
+  waitingStepCount,
+}: {
+  activeStepTitle: string | null;
+  completedStepCount: number;
+  failedStepCount: number;
+  totalStepCount: number;
+  waitingStepCount: number;
+}) {
+  const summaryItems = [
+    {
+      label: "전체",
+      value: `${totalStepCount}개`,
+    },
+    {
+      label: "완료",
+      value: `${completedStepCount}개`,
+    },
+    {
+      label: "대기",
+      value: `${waitingStepCount}개`,
+    },
+    {
+      label: "실패",
+      value: `${failedStepCount}개`,
+    },
+  ];
+
+  return (
+    <div className="progress-summary" aria-label="미션 진행 요약">
+      <div className="progress-summary__current">
+        <span>현재 단계</span>
+        <strong>{activeStepTitle ?? "단계 정보를 기다리는 중"}</strong>
+      </div>
+      <dl className="progress-summary__stats">
+        {summaryItems.map((item) => (
+          <div key={item.label}>
+            <dt>{item.label}</dt>
+            <dd>{item.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }
 
@@ -980,10 +1152,36 @@ function ErrorFeedbackView({
 }
 
 function ChatPanel() {
+  const previewMessages = [
+    {
+      id: "system",
+      author: "시스템",
+      message: "팀 채팅 연결 전까지 게임 진행 알림이 이 영역에 표시됩니다.",
+    },
+    {
+      id: "mission",
+      author: "미션",
+      message: "턴 전환, 제출 상태, 평가 결과를 팀원과 함께 확인할 수 있어요.",
+    },
+  ];
+
   return (
     <section className="panel chat-card">
       <h3>팀 채팅 ⧉</h3>
       <p>팀 채팅은 이후 작업에서 연결됩니다.</p>
+      <div className="chat-preview" aria-label="팀 채팅 준비 상태">
+        {previewMessages.map((message) => (
+          <article className="chat-preview__message" key={message.id}>
+            <strong>{message.author}</strong>
+            <p>{message.message}</p>
+          </article>
+        ))}
+      </div>
+      <div className="chat-readiness">
+        <span>연결 대기</span>
+        <span>메시지 동기화 예정</span>
+        <span>턴 알림 준비</span>
+      </div>
     </section>
   );
 }
