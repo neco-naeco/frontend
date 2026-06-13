@@ -448,6 +448,20 @@
   gap: 18px;
 }
 
+.progress-empty {
+  grid-column: 1 / -1;
+  min-height: 120px;
+  margin: 0;
+  border: 1px dashed #cdd9c6;
+  border-radius: 6px;
+  background: #f8fbf4;
+  color: #6f7e67;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 900;
+}
+
 .progress-step {
   position: relative;
   padding: 34px 16px 18px;
