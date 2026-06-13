@@ -1208,4 +1208,75 @@
   .room-layout {
     height: auto;
   }
+
+  .left-rail,
+  .main-column,
+  .right-rail {
+    grid-template-rows: none;
+  }
+
+  .mission-mascot {
+    right: 8px;
+    bottom: -18px;
+  }
+
+  .progress-steps {
+    grid-template-columns: repeat(2, minmax(180px, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .room-header,
+  .room-layout {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .socket-closed-banner {
+    margin-left: 16px;
+    margin-right: 16px;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .room-status,
+  .team-strip {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .status-pill {
+    height: 42px;
+    padding: 0 12px;
+    gap: 8px;
+    font-size: 12px;
+  }
+
+  .status-pill strong {
+    font-size: 16px;
+  }
+
+  .lives span:not(:first-child) {
+    font-size: 22px;
+  }
+
+  .progress-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .analysis-steps {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .editor-actions {
+    height: auto;
+    padding: 12px;
+    flex-wrap: wrap;
+  }
+
+  .submit-button,
+  .reset-button {
+    justify-content: center;
+    flex: 1 1 180px;
+  }
 }
