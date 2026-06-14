@@ -425,3 +425,800 @@ test("isRoomSessionUnavailable locks room interactions on closed or error states
   assert.equal(isRoomSessionUnavailable("connecting"), false);
   assert.equal(isRoomSessionUnavailable("connected"), false);
 });
+
+test("getRoomSocketEligibility reports every blocked connection reason", () => {
+  const cases = [
+    {
+      name: "missing access token",
+      input: createInput({ accessToken: null }),
+      expected: {
+        canConnect: false,
+        reason: "missing-auth",
+      },
+    },
+    {
+      name: "missing user id",
+      input: createInput({ userId: null }),
+      expected: {
+        canConnect: false,
+        reason: "missing-auth",
+      },
+    },
+    {
+      name: "missing current room",
+      input: createInput({ currentRoom: null }),
+      expected: {
+        canConnect: false,
+        reason: "missing-room",
+      },
+    },
+    {
+      name: "route room mismatch",
+      input: createInput({ routeGameRoomId: "room-2" }),
+      expected: {
+        canConnect: false,
+        reason: "room-mismatch",
+      },
+    },
+    {
+      name: "invited membership",
+      input: createInput({
+        currentRoom: createRoom({ myMembershipStatus: "INVITED" }),
+      }),
+      expected: {
+        canConnect: false,
+        reason: "not-joined",
+      },
+    },
+    {
+      name: "left membership",
+      input: createInput({
+        currentRoom: createRoom({ myMembershipStatus: "LEFT" }),
+      }),
+      expected: {
+        canConnect: false,
+        reason: "not-joined",
+      },
+    },
+    {
+      name: "finished room",
+      input: createInput({
+        currentRoom: createRoom({ status: "FINISHED" }),
+      }),
+      expected: {
+        canConnect: false,
+        reason: "unsupported-room-status",
+      },
+    },
+    {
+      name: "cancelled room",
+      input: createInput({
+        currentRoom: createRoom({ status: "CANCELLED" }),
+      }),
+      expected: {
+        canConnect: false,
+        reason: "unsupported-room-status",
+      },
+    },
+  ];
+
+  for (const testCase of cases) {
+    assert.deepEqual(
+      getRoomSocketEligibility(testCase.input),
+      testCase.expected,
+      testCase.name,
+    );
+  }
+});
+
+test("getRoomSocketEligibility builds the reflected join-room payload", () => {
+  const eligibility = getRoomSocketEligibility(
+    createInput({
+      accessToken: "token-for-room-7",
+      currentRoom: createRoom({
+        gameRoomId: "room-7",
+        status: "IN_PROGRESS",
+      }),
+      routeGameRoomId: "room-7",
+      socketUrl: "ws://localhost:9090/realtime",
+      userId: "user-7",
+    }),
+  );
+
+  assert.deepEqual(eligibility, {
+    canConnect: true,
+    joinRoomEvent: {
+      accessToken: "token-for-room-7",
+      gameRoomId: "room-7",
+      userId: "user-7",
+    },
+    socketUrl: "ws://localhost:9090/realtime",
+  });
+});
+
+test("room socket lifecycle maps ineligible sync results to idle or left updates", () => {
+  const updates = [];
+  const fake = createFakeSocket();
+  const controller = createRoomSocketLifecycleController({
+    createSocket() {
+      return fake.socket;
+    },
+    onUpdate(update) {
+      updates.push(update);
+    },
+  });
+
+  controller.sync(createInput());
+  fake.socket.trigger("connect");
+
+  controller.sync(createInput({ accessToken: null }));
+
+  assert.equal(fake.socket.disconnectCalls, 1);
+  assert.deepEqual(updates.at(-1), {
+    activeRoomId: null,
+    connectionStatus: "left",
+    socketId: null,
+    closeCode: null,
+    closeReasonCode: null,
+  });
+
+  controller.sync(
+    createInput({
+      currentRoom: createRoom({ myMembershipStatus: "INVITED" }),
+    }),
+  );
+
+  assert.deepEqual(updates.at(-1), {
+    activeRoomId: null,
+    connectionStatus: "idle",
+    socketId: null,
+    closeCode: null,
+    closeReasonCode: null,
+  });
+});
+
+test("room socket lifecycle disconnects stale sockets before joining a new room", () => {
+  const updates = [];
+  const firstRoomSocket = createFakeSocket("socket-room-1");
+  const secondRoomSocket = createFakeSocket("socket-room-2");
+  const sockets = [firstRoomSocket.socket, secondRoomSocket.socket];
+  const controller = createRoomSocketLifecycleController({
+    createSocket() {
+      return sockets.shift();
+    },
+    onUpdate(update) {
+      updates.push(update);
+    },
+  });
+
+  controller.sync(createInput());
+  firstRoomSocket.socket.trigger("connect");
+  controller.sync(
+    createInput({
+      currentRoom: createRoom({ gameRoomId: "room-2" }),
+      routeGameRoomId: "room-2",
+    }),
+  );
+  secondRoomSocket.socket.trigger("connect");
+
+  assert.equal(firstRoomSocket.socket.disconnectCalls, 1);
+  assert.equal(secondRoomSocket.socket.connectCalls, 1);
+  assert.deepEqual(secondRoomSocket.emitted, [
+    {
+      eventName: "join-room",
+      payload: {
+        accessToken: "access-token",
+        gameRoomId: "room-2",
+        userId: "user-1",
+      },
+    },
+  ]);
+  assert.deepEqual(updates.at(-1), {
+    activeRoomId: "room-2",
+    connectionStatus: "connected",
+    socketId: "socket-room-2",
+    closeCode: null,
+    closeReasonCode: null,
+  });
+});
+
+test("room socket lifecycle emits only while a socket is active", () => {
+  const fake = createFakeSocket();
+  const controller = createRoomSocketLifecycleController({
+    createSocket() {
+      return fake.socket;
+    },
+    onUpdate() {},
+  });
+
+  assert.equal(
+    controller.emit("code-updated", { filePath: "main.py" }),
+    false,
+  );
+
+  controller.sync(createInput());
+
+  assert.equal(
+    controller.emit("code-updated", { filePath: "main.py", content: "print(1)" }),
+    true,
+  );
+  assert.deepEqual(fake.emitted, [
+    {
+      eventName: "code-updated",
+      payload: {
+        filePath: "main.py",
+        content: "print(1)",
+      },
+    },
+  ]);
+
+  controller.leave("room-1");
+
+  assert.equal(
+    controller.emit("code-updated", { filePath: "main.py", content: "print(2)" }),
+    false,
+  );
+});
+
+test("room socket lifecycle ignores late events from released sockets", () => {
+  const updates = [];
+  const firstSocket = createFakeSocket("socket-1");
+  const secondSocket = createFakeSocket("socket-2");
+  const sockets = [firstSocket.socket, secondSocket.socket];
+  const controller = createRoomSocketLifecycleController({
+    createSocket() {
+      return sockets.shift();
+    },
+    onUpdate(update) {
+      updates.push(update);
+    },
+  });
+
+  controller.sync(createInput());
+  controller.sync(
+    createInput({
+      currentRoom: createRoom({ gameRoomId: "room-2" }),
+      routeGameRoomId: "room-2",
+    }),
+  );
+
+  firstSocket.socket.trigger("connect");
+  firstSocket.socket.trigger("disconnect", "4403: FORBIDDEN_RESOURCE_ACCESS");
+  firstSocket.socket.trigger("connect_error", "late error");
+
+  assert.equal(
+    updates.some((update) => update.closeReasonCode === "FORBIDDEN_RESOURCE_ACCESS"),
+    false,
+  );
+  assert.equal(updates.at(-1).activeRoomId, "room-2");
+  assert.equal(updates.at(-1).connectionStatus, "connecting");
+
+  secondSocket.socket.trigger("connect");
+
+  assert.equal(updates.at(-1).connectionStatus, "connected");
+  assert.equal(updates.at(-1).socketId, "socket-2");
+});
+
+test("parseSocketDisconnectClose normalizes mixed close reason formats", () => {
+  const cases = [
+    {
+      reason: "4401/AUTH_TOKEN_INVALID",
+      expected: {
+        closeCode: 4401,
+        closeReasonCode: "AUTH_TOKEN_INVALID",
+      },
+    },
+    {
+      reason: "4403 : FORBIDDEN_RESOURCE_ACCESS",
+      expected: {
+        closeCode: 4403,
+        closeReasonCode: "FORBIDDEN_RESOURCE_ACCESS",
+      },
+    },
+    {
+      reason: "  ",
+      expected: {
+        closeCode: null,
+        closeReasonCode: null,
+      },
+    },
+    {
+      reason: null,
+      expected: {
+        closeCode: null,
+        closeReasonCode: "socket closed",
+      },
+    },
+    {
+      reason: undefined,
+      expected: {
+        closeCode: null,
+        closeReasonCode: "socket closed",
+      },
+    },
+    {
+      reason: { toString: () => "custom close" },
+      expected: {
+        closeCode: null,
+        closeReasonCode: "custom close",
+      },
+    },
+  ];
+
+  for (const testCase of cases) {
+    assert.deepEqual(
+      parseSocketDisconnectClose(testCase.reason),
+      testCase.expected,
+      String(testCase.reason),
+    );
+  }
+});
+
+test("formatRealtimeCloseMessage prefers mapped reason codes over raw close text", () => {
+  const cases = [
+    {
+      closeCode: 4401,
+      closeReasonCode: "AUTH_TOKEN_INVALID",
+      expected: "Authentication data is invalid.",
+    },
+    {
+      closeCode: 4404,
+      closeReasonCode: "GAME_ROOM_NOT_FOUND",
+      expected: "The game room was not found.",
+    },
+    {
+      closeCode: 4403,
+      closeReasonCode: "UNKNOWN_POLICY",
+      expected: "4403 (UNKNOWN_POLICY)",
+    },
+    {
+      closeCode: null,
+      closeReasonCode: "transport close",
+      expected: "transport close",
+    },
+    {
+      closeCode: null,
+      closeReasonCode: null,
+      expected: null,
+    },
+  ];
+
+  for (const testCase of cases) {
+    assert.equal(
+      formatRealtimeCloseMessage({
+        closeCode: testCase.closeCode,
+        closeReasonCode: testCase.closeReasonCode,
+      }),
+      testCase.expected,
+    );
+  }
+});
+
+test("getRealtimeCloseBannerCopy separates error, intentional, and terminated states", () => {
+  const cases = [
+    {
+      name: "transport error",
+      input: {
+        closeCode: null,
+        closeReasonCode: null,
+        connectionStatus: "error",
+      },
+      expected: {
+        title: "실시간 연결에 실패했어요.",
+        description: "연결 상태를 확인한 뒤 다시 입장해주세요.",
+      },
+    },
+    {
+      name: "intentional close",
+      input: {
+        closeCode: 1000,
+        closeReasonCode: null,
+        connectionStatus: "closed",
+      },
+      expected: {
+        title: "실시간 연결이 종료됐어요.",
+        description: "1000",
+      },
+    },
+    {
+      name: "terminated session",
+      input: {
+        closeCode: 4404,
+        closeReasonCode: "GAME_ROOM_NOT_FOUND",
+        connectionStatus: "closed",
+      },
+      expected: {
+        title: "게임 세션을 계속할 수 없어요.",
+        description: "The game room was not found.",
+      },
+    },
+    {
+      name: "transport close",
+      input: {
+        closeCode: null,
+        closeReasonCode: "transport close",
+        connectionStatus: "closed",
+      },
+      expected: {
+        title: "실시간 연결이 종료됐어요.",
+        description: "transport close",
+      },
+    },
+  ];
+
+  for (const testCase of cases) {
+    assert.deepEqual(
+      getRealtimeCloseBannerCopy(testCase.input),
+      testCase.expected,
+      testCase.name,
+    );
+  }
+});
+
+test("store-backed lifecycle writes every realtime update field", () => {
+  const store = createAppStore();
+  const fake = createFakeSocket("socket-store");
+  const controller = createStoreBackedRoomSocketLifecycleController(
+    store,
+    () => fake.socket,
+  );
+
+  controller.sync(createInput());
+
+  assert.deepEqual(
+    {
+      activeRoomId: store.getState().realtime.activeRoomId,
+      closeCode: store.getState().realtime.closeCode,
+      closeReasonCode: store.getState().realtime.closeReasonCode,
+      connectionStatus: store.getState().realtime.connectionStatus,
+      socketId: store.getState().realtime.socketId,
+    },
+    {
+      activeRoomId: "room-1",
+      closeCode: null,
+      closeReasonCode: null,
+      connectionStatus: "connecting",
+      socketId: null,
+    },
+  );
+
+  fake.socket.trigger("connect");
+
+  assert.deepEqual(
+    {
+      activeRoomId: store.getState().realtime.activeRoomId,
+      closeCode: store.getState().realtime.closeCode,
+      closeReasonCode: store.getState().realtime.closeReasonCode,
+      connectionStatus: store.getState().realtime.connectionStatus,
+      socketId: store.getState().realtime.socketId,
+    },
+    {
+      activeRoomId: "room-1",
+      closeCode: null,
+      closeReasonCode: null,
+      connectionStatus: "connected",
+      socketId: "socket-store",
+    },
+  );
+
+  fake.socket.trigger("disconnect", "4403: FORBIDDEN_RESOURCE_ACCESS");
+
+  assert.deepEqual(
+    {
+      activeRoomId: store.getState().realtime.activeRoomId,
+      closeCode: store.getState().realtime.closeCode,
+      closeReasonCode: store.getState().realtime.closeReasonCode,
+      connectionStatus: store.getState().realtime.connectionStatus,
+      socketId: store.getState().realtime.socketId,
+    },
+    {
+      activeRoomId: "room-1",
+      closeCode: 4403,
+      closeReasonCode: "FORBIDDEN_RESOURCE_ACCESS",
+      connectionStatus: "closed",
+      socketId: null,
+    },
+  );
+});
+
+test("room socket lifecycle keeps the same socket for repeated eligible syncs", () => {
+  const fake = createFakeSocket("socket-stable");
+  let factoryCalls = 0;
+  const updates = [];
+  const controller = createRoomSocketLifecycleController({
+    createSocket() {
+      factoryCalls += 1;
+      return fake.socket;
+    },
+    onUpdate(update) {
+      updates.push(update);
+    },
+  });
+
+  const firstEligibility = controller.sync(createInput());
+  const secondEligibility = controller.sync(createInput());
+  const thirdEligibility = controller.sync(createInput());
+
+  assert.equal(factoryCalls, 1);
+  assert.equal(fake.socket.connectCalls, 1);
+  assert.equal(firstEligibility.canConnect, true);
+  assert.equal(secondEligibility.canConnect, true);
+  assert.equal(thirdEligibility.canConnect, true);
+  assert.equal(updates.length, 1);
+  assert.deepEqual(updates[0], {
+    activeRoomId: "room-1",
+    connectionStatus: "connecting",
+    socketId: null,
+    closeCode: null,
+    closeReasonCode: null,
+  });
+});
+
+test("room socket lifecycle clears terminated latch after switching rooms", () => {
+  const firstRoomSocket = createFakeSocket("socket-room-1");
+  const secondRoomSocket = createFakeSocket("socket-room-2");
+  const thirdRoomSocket = createFakeSocket("socket-room-1b");
+  const sockets = [
+    firstRoomSocket.socket,
+    secondRoomSocket.socket,
+    thirdRoomSocket.socket,
+  ];
+  let factoryCalls = 0;
+  const updates = [];
+  const controller = createRoomSocketLifecycleController({
+    createSocket() {
+      factoryCalls += 1;
+      return sockets.shift();
+    },
+    onUpdate(update) {
+      updates.push(update);
+    },
+  });
+
+  controller.sync(createInput());
+  firstRoomSocket.socket.trigger("connect");
+  firstRoomSocket.socket.trigger("disconnect", "4403: FORBIDDEN_RESOURCE_ACCESS");
+
+  controller.sync(createInput());
+
+  assert.equal(factoryCalls, 1);
+  assert.equal(updates.at(-1).connectionStatus, "closed");
+  assert.equal(updates.at(-1).closeReasonCode, "FORBIDDEN_RESOURCE_ACCESS");
+
+  controller.sync(
+    createInput({
+      currentRoom: createRoom({ gameRoomId: "room-2" }),
+      routeGameRoomId: "room-2",
+    }),
+  );
+  secondRoomSocket.socket.trigger("connect");
+
+  assert.equal(factoryCalls, 2);
+  assert.equal(updates.at(-1).activeRoomId, "room-2");
+  assert.equal(updates.at(-1).connectionStatus, "connected");
+
+  controller.sync(createInput());
+  thirdRoomSocket.socket.trigger("connect");
+
+  assert.equal(factoryCalls, 3);
+  assert.equal(updates.at(-1).activeRoomId, "room-1");
+  assert.equal(updates.at(-1).connectionStatus, "connected");
+  assert.equal(updates.at(-1).closeCode, null);
+  assert.equal(updates.at(-1).closeReasonCode, null);
+});
+
+test("room socket lifecycle leave only disconnects matching active room", () => {
+  const fake = createFakeSocket("socket-active");
+  const updates = [];
+  const controller = createRoomSocketLifecycleController({
+    createSocket() {
+      return fake.socket;
+    },
+    onUpdate(update) {
+      updates.push(update);
+    },
+  });
+
+  controller.sync(createInput());
+  fake.socket.trigger("connect");
+  controller.leave("other-room");
+
+  assert.equal(fake.socket.disconnectCalls, 0);
+  assert.deepEqual(updates.at(-1), {
+    activeRoomId: "room-1",
+    connectionStatus: "connected",
+    socketId: "socket-active",
+    closeCode: null,
+    closeReasonCode: null,
+  });
+
+  controller.leave("room-1");
+
+  assert.equal(fake.socket.disconnectCalls, 1);
+  assert.deepEqual(updates.at(-1), {
+    activeRoomId: null,
+    connectionStatus: "left",
+    socketId: null,
+    closeCode: null,
+    closeReasonCode: null,
+  });
+});
+
+test("room socket lifecycle resets close metadata after an expected leave", () => {
+  const fake = createFakeSocket("socket-close");
+  const updates = [];
+  const controller = createRoomSocketLifecycleController({
+    createSocket() {
+      return fake.socket;
+    },
+    onUpdate(update) {
+      updates.push(update);
+    },
+  });
+
+  controller.sync(createInput());
+  fake.socket.trigger("connect");
+  fake.socket.trigger("disconnect", "transport close");
+
+  assert.deepEqual(updates.at(-1), {
+    activeRoomId: "room-1",
+    connectionStatus: "closed",
+    socketId: null,
+    closeCode: null,
+    closeReasonCode: "transport close",
+  });
+
+  controller.sync(createInput());
+  controller.leave("room-1");
+
+  assert.deepEqual(updates.at(-1), {
+    activeRoomId: null,
+    connectionStatus: "left",
+    socketId: null,
+    closeCode: null,
+    closeReasonCode: null,
+  });
+});
+
+test("store-backed lifecycle releases room realtime event bindings on room switch", () => {
+  const store = createAppStore();
+  store.setState((state) => ({
+    ...state,
+    room: {
+      ...state.room,
+      currentRoom: createRoom(),
+    },
+    realtime: {
+      ...state.realtime,
+      activeRoomId: "room-1",
+    },
+  }));
+
+  const firstSocket = createFakeSocket("socket-room-1");
+  const secondSocket = createFakeSocket("socket-room-2");
+  const sockets = [firstSocket.socket, secondSocket.socket];
+  const controller = createStoreBackedRoomSocketLifecycleController(
+    store,
+    () => sockets.shift(),
+  );
+
+  controller.sync(createInput());
+  firstSocket.socket.trigger("connect");
+  controller.sync(
+    createInput({
+      currentRoom: createRoom({ gameRoomId: "room-2" }),
+      routeGameRoomId: "room-2",
+    }),
+  );
+  secondSocket.socket.trigger("connect");
+
+  firstSocket.socket.trigger("game-started", {
+    gameRoomId: "room-1",
+    gameState: { status: "IN_PROGRESS" },
+    missionState: {
+      missionId: "mission-stale",
+      projectStructure: {
+        rootPath: "/workspace",
+        entryFilePath: "main.py",
+        files: [{ filePath: "main.py", language: "python", readonly: false }],
+      },
+    },
+    uiHints: { enterGameScreen: false, showMissionGuideModal: false },
+    occurredAt: "2026-05-25T10:10:00Z",
+  });
+
+  assert.notEqual(store.getState().game.missionState?.missionId, "mission-stale");
+
+  secondSocket.socket.trigger("game-started", {
+    gameRoomId: "room-2",
+    gameState: { status: "IN_PROGRESS" },
+    missionState: {
+      missionId: "mission-active",
+      projectStructure: {
+        rootPath: "/workspace",
+        entryFilePath: "main.py",
+        files: [{ filePath: "main.py", language: "python", readonly: false }],
+      },
+    },
+    uiHints: { enterGameScreen: false, showMissionGuideModal: false },
+    occurredAt: "2026-05-25T10:11:00Z",
+  });
+
+  assert.equal(store.getState().game.missionState.missionId, "mission-active");
+});
+
+test("store-backed lifecycle removes realtime bindings after leaving a room", () => {
+  const store = createAppStore();
+  store.setState((state) => ({
+    ...state,
+    room: {
+      ...state.room,
+      currentRoom: createRoom(),
+    },
+    realtime: {
+      ...state.realtime,
+      activeRoomId: "room-1",
+    },
+  }));
+
+  const fake = createFakeSocket("socket-leave");
+  const controller = createStoreBackedRoomSocketLifecycleController(
+    store,
+    () => fake.socket,
+  );
+
+  controller.sync(createInput());
+  fake.socket.trigger("connect");
+  controller.leave("room-1");
+  fake.socket.trigger("game-started", {
+    gameRoomId: "room-1",
+    gameState: { status: "IN_PROGRESS" },
+    missionState: {
+      missionId: "mission-after-leave",
+      projectStructure: {
+        rootPath: "/workspace",
+        entryFilePath: "main.py",
+        files: [{ filePath: "main.py", language: "python", readonly: false }],
+      },
+    },
+    uiHints: { enterGameScreen: false, showMissionGuideModal: false },
+    occurredAt: "2026-05-25T10:12:00Z",
+  });
+
+  assert.equal(store.getState().realtime.connectionStatus, "left");
+  assert.equal(store.getState().game.missionState, null);
+});
+
+test("close banner copy falls back when close payload has no message", () => {
+  assert.deepEqual(
+    getRealtimeCloseBannerCopy({
+      closeCode: null,
+      closeReasonCode: null,
+      connectionStatus: "closed",
+    }),
+    {
+      title: "실시간 연결이 종료됐어요.",
+      description: "게임 세션이 닫혔습니다.",
+    },
+  );
+});
+
+test("close banner copy exposes raw unknown application close reason", () => {
+  assert.deepEqual(
+    getRealtimeCloseBannerCopy({
+      closeCode: 4499,
+      closeReasonCode: "CUSTOM_CLOSE",
+      connectionStatus: "closed",
+    }),
+    {
+      title: "실시간 연결이 종료됐어요.",
+      description: "4499 (CUSTOM_CLOSE)",
+    },
+  );
+});
+
+test("isSameRoomScopedPath rejects prefix-only room id matches", () => {
+  assert.equal(isSameRoomScopedPath("/rooms/room-10/play", "room-1"), false);
+  assert.equal(isSameRoomScopedPath("/rooms/room-1", "room-1"), false);
+  assert.equal(isSameRoomScopedPath("/rooms/room-1-extra/play", "room-1"), false);
+});
