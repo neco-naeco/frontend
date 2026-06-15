@@ -345,3 +345,955 @@ test("bindRoomRealtimeEvents accepts backend-first turn-changed payloads without
   assert.equal(next.game.gameState.turnState.currentPlayerId, "user-2");
   assert.equal(next.game.gameState.turnState.status, "IN_PROGRESS");
 });
+
+test("applyTurnEvaluated ignores events for inactive rooms", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+  const previous = store.getState();
+
+  const next = applyTurnEvaluated(previous, {
+    gameRoomId: "other-room",
+    evaluatedTurn: {
+      turnId: "turn-1",
+      turnNumber: 1,
+      playerUserId: "user-1",
+      status: "SUBMITTED",
+    },
+    evaluationResult: {
+      isStepCleared: false,
+      judgeStatus: "FAILED",
+      strikeCount: 2,
+      remainingStrikeCount: 1,
+      feedbackMessage: "ignored",
+      detectedIssues: [
+        {
+          issueType: "LOGIC_ERROR",
+          message: "ignored issue",
+          filePath: "main.py",
+          lineNumber: 1,
+        },
+      ],
+      executionSummary: {
+        status: "SUCCESS",
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      },
+    },
+    occurredAt: "2026-05-25T10:11:00Z",
+  });
+
+  assert.equal(next, previous);
+  assert.equal(next.game.lastTurnEvaluation, null);
+  assert.deepEqual(next.editor.markers, []);
+});
+
+test("applyTurnEvaluated preserves current turn when evaluated turn id is stale", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+
+  const next = applyTurnEvaluated(store.getState(), {
+    gameRoomId: "room-1",
+    evaluatedTurn: {
+      turnId: "old-turn",
+      turnNumber: 0,
+      playerUserId: "user-9",
+      status: "SUBMITTED",
+    },
+    evaluationResult: {
+      isStepCleared: false,
+      judgeStatus: "FAILED",
+      strikeCount: 2,
+      remainingStrikeCount: 1,
+      feedbackMessage: "stale evaluation",
+      detectedIssues: [],
+      executionSummary: {
+        status: "SUCCESS",
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      },
+    },
+    occurredAt: "2026-05-25T10:11:00Z",
+  });
+
+  assert.equal(next.game.gameState.turnState.turnId, "turn-1");
+  assert.equal(next.game.gameState.turnState.status, "IN_PROGRESS");
+  assert.equal(next.game.lastTurnEvaluation.feedbackMessage, "stale evaluation");
+  assert.equal(next.game.gameState.strikeCount, 2);
+});
+
+test("applyTurnEvaluated expands max strike count when backend remaining count implies a larger total", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+  store.setState((state) => ({
+    ...state,
+    game: {
+      ...state.game,
+      gameState: {
+        ...state.game.gameState,
+        maxStrikeCount: 2,
+      },
+    },
+  }));
+
+  const next = applyTurnEvaluated(store.getState(), {
+    gameRoomId: "room-1",
+    evaluatedTurn: {
+      turnId: "turn-1",
+      turnNumber: 1,
+      playerUserId: "user-1",
+      status: "SUBMITTED",
+    },
+    evaluationResult: {
+      isStepCleared: false,
+      judgeStatus: "FAILED",
+      strikeCount: 3,
+      remainingStrikeCount: 2,
+      feedbackMessage: "larger strike budget",
+      detectedIssues: [],
+      executionSummary: {
+        status: "SUCCESS",
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      },
+    },
+    occurredAt: "2026-05-25T10:11:00Z",
+  });
+
+  assert.equal(next.game.gameState.strikeCount, 3);
+  assert.equal(next.game.gameState.maxStrikeCount, 3);
+});
+
+test("applyTurnChanged ignores inactive room turn changes", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+  const previous = store.getState();
+
+  const next = applyTurnChanged(previous, {
+    gameRoomId: "other-room",
+    previousTurnId: "turn-1",
+    currentTurnId: "turn-2",
+    currentTurnUserId: "user-2",
+    occurredAt: "2026-05-25T10:11:05Z",
+  });
+
+  assert.equal(next, previous);
+  assert.equal(next.game.gameState.turnState.turnId, "turn-1");
+});
+
+test("applyTurnChanged ignores backend-first payloads that cannot build a turn state", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+  const previous = store.getState();
+
+  const withoutTurnId = applyTurnChanged(previous, {
+    gameRoomId: "room-1",
+    previousTurnId: "turn-1",
+    currentTurnUserId: "user-2",
+    occurredAt: "2026-05-25T10:11:05Z",
+  });
+  const withoutPlayerId = applyTurnChanged(previous, {
+    gameRoomId: "room-1",
+    previousTurnId: "turn-1",
+    currentTurnId: "turn-2",
+    occurredAt: "2026-05-25T10:11:05Z",
+  });
+  const withoutOccurredAt = applyTurnChanged(previous, {
+    gameRoomId: "room-1",
+    previousTurnId: "turn-1",
+    currentTurnId: "turn-2",
+    currentTurnUserId: "user-2",
+  });
+
+  assert.equal(withoutTurnId, previous);
+  assert.equal(withoutPlayerId, previous);
+  assert.equal(withoutOccurredAt, previous);
+});
+
+test("applyTurnChanged keeps previous mission state when mission payload is omitted or null", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+
+  const withoutMissionPayload = applyTurnChanged(store.getState(), {
+    gameRoomId: "room-1",
+    turnState: {
+      turnId: "turn-2",
+      turnNumber: 2,
+      currentPlayerId: "user-2",
+      startedAt: "2026-05-25T10:11:05Z",
+      deadlineAt: "2026-05-25T10:11:35Z",
+      timeLimitSeconds: 30,
+      remainingTimeSeconds: 30,
+      status: "IN_PROGRESS",
+    },
+  });
+
+  assert.equal(withoutMissionPayload.game.missionState.missionId, "mission-1");
+  assert.equal(withoutMissionPayload.game.missionState.title, "Mission");
+
+  const withNullMissionPayload = applyTurnChanged(store.getState(), {
+    gameRoomId: "room-1",
+    missionState: null,
+    turnState: {
+      turnId: "turn-3",
+      turnNumber: 3,
+      currentPlayerId: "user-3",
+      startedAt: "2026-05-25T10:12:05Z",
+      deadlineAt: "2026-05-25T10:12:35Z",
+      timeLimitSeconds: 30,
+      remainingTimeSeconds: 30,
+      status: "IN_PROGRESS",
+    },
+  });
+
+  assert.equal(withNullMissionPayload.game.missionState.missionId, "mission-1");
+  assert.equal(withNullMissionPayload.game.missionState.title, "Mission");
+});
+
+test("applyTurnChanged updates waiting-room game state when current room matches", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+  store.setState((state) => ({
+    ...state,
+    room: {
+      currentRoom: {
+        gameRoomId: "room-1",
+        status: "IN_PROGRESS",
+        difficulty: "NORMAL",
+        ownerUserId: "owner-1",
+        myRole: "PARTICIPANT",
+        myMembershipStatus: "JOINED",
+        joinedParticipantCount: 2,
+        timeLimitSeconds: 30,
+        maxStrikeCount: 3,
+        minParticipants: 2,
+        maxParticipants: 4,
+        createdAt: "2026-05-25T10:00:00Z",
+        updatedAt: "2026-05-25T10:05:00Z",
+      },
+      roomWaitingState: {
+        currentRoom: {
+          gameRoomId: "room-1",
+          status: "IN_PROGRESS",
+          difficulty: "NORMAL",
+          ownerUserId: "owner-1",
+          myRole: "PARTICIPANT",
+          myMembershipStatus: "JOINED",
+          joinedParticipantCount: 2,
+          timeLimitSeconds: 30,
+          maxStrikeCount: 3,
+          minParticipants: 2,
+          maxParticipants: 4,
+          createdAt: "2026-05-25T10:00:00Z",
+          updatedAt: "2026-05-25T10:05:00Z",
+        },
+        participants: [],
+        changedParticipant: null,
+        gameState: state.game.gameState,
+        missionState: state.game.missionState,
+      },
+    },
+  }));
+
+  const next = applyTurnChanged(store.getState(), {
+    gameRoomId: "room-1",
+    missionState: {
+      missionId: "mission-1",
+      title: "Updated mission",
+    },
+    turnState: {
+      turnId: "turn-2",
+      turnNumber: 2,
+      currentPlayerId: "user-2",
+      startedAt: "2026-05-25T10:11:05Z",
+      deadlineAt: "2026-05-25T10:11:35Z",
+      timeLimitSeconds: 30,
+      remainingTimeSeconds: 30,
+      status: "IN_PROGRESS",
+    },
+  });
+
+  assert.equal(next.room.roomWaitingState.gameState.turnState.turnId, "turn-2");
+  assert.equal(next.room.roomWaitingState.missionState.title, "Updated mission");
+  assert.deepEqual(next.editor.markers, []);
+  assert.equal(next.game.turnSubmissionPending, false);
+});
+
+test("applyMissionResult ignores inactive room results", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+  const previous = store.getState();
+
+  const result = applyMissionResult(previous, {
+    gameRoomId: "other-room",
+    gameState: { status: "FINISHED" },
+    missionResult: {
+      missionId: "mission-1",
+      isMissionCleared: true,
+      judgeStatus: "PASSED",
+      selectedInputs: [],
+      expectedOutputs: [],
+      actualOutputs: [],
+      strikeCount: 0,
+      remainingStrikeCount: 3,
+      feedbackMessage: "ignored result",
+      detectedIssues: [],
+    },
+  });
+
+  assert.equal(result.state, previous);
+  assert.equal(result.navigationTarget, null);
+  assert.equal(result.state.game.missionResult, null);
+});
+
+test("applyMissionResult routes even when final game state is omitted", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+
+  const result = applyMissionResult(store.getState(), {
+    gameRoomId: "room-1",
+    missionResult: {
+      missionId: "mission-1",
+      isMissionCleared: true,
+      judgeStatus: "PASSED",
+      selectedInputs: ["1 2"],
+      expectedOutputs: ["3"],
+      actualOutputs: ["3"],
+      strikeCount: 0,
+      remainingStrikeCount: 3,
+      feedbackMessage: "cleared",
+      detectedIssues: [],
+    },
+  });
+
+  assert.equal(result.navigationTarget, "/rooms/room-1/result");
+  assert.equal(result.state.game.missionResult.feedbackMessage, "cleared");
+  assert.equal(result.state.game.gameState.status, "IN_PROGRESS");
+});
+
+test("bindRoomRealtimeEvents removes handlers through the returned unbind function", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+  const handlers = new Map();
+  const removed = [];
+  const socket = {
+    on(eventName, handler) {
+      handlers.set(eventName, handler);
+    },
+    off(eventName) {
+      removed.push(eventName);
+      handlers.delete(eventName);
+    },
+  };
+
+  const unbind = bindRoomRealtimeEvents(socket, store);
+
+  assert.equal(handlers.has("turn-evaluated"), true);
+  assert.equal(handlers.has("turn-changed"), true);
+  assert.equal(handlers.has("mission-result"), true);
+
+  unbind();
+
+  assert.equal(handlers.has("turn-evaluated"), false);
+  assert.equal(handlers.has("turn-changed"), false);
+  assert.equal(handlers.has("mission-result"), false);
+  assert.equal(removed.includes("turn-evaluated"), true);
+  assert.equal(removed.includes("turn-changed"), true);
+  assert.equal(removed.includes("mission-result"), true);
+});
+
+test("applyTurnEvaluated preserves the current turn when backend evaluates an older turn", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+  store.setState((state) => ({
+    ...state,
+    game: {
+      ...state.game,
+      gameState: {
+        ...state.game.gameState,
+        turnState: {
+          ...state.game.gameState.turnState,
+          turnId: "turn-2",
+          turnNumber: 2,
+          currentPlayerId: "user-2",
+          status: "IN_PROGRESS",
+        },
+      },
+    },
+  }));
+
+  const next = applyTurnEvaluated(store.getState(), {
+    gameRoomId: "room-1",
+    evaluatedTurn: {
+      turnId: "turn-1",
+      turnNumber: 1,
+      playerUserId: "user-1",
+      status: "SUBMITTED",
+    },
+    evaluationResult: {
+      isStepCleared: false,
+      judgeStatus: "FAILED",
+      strikeCount: 2,
+      remainingStrikeCount: 1,
+      feedbackMessage: "late result",
+      detectedIssues: [
+        {
+          issueType: "LOGIC_ERROR",
+          message: "old turn issue",
+          filePath: "main.py",
+          lineNumber: 4,
+        },
+      ],
+      executionSummary: {
+        status: "SUCCESS",
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      },
+    },
+    occurredAt: "2026-05-25T10:11:00Z",
+  });
+
+  assert.equal(next.game.gameState.turnState.turnId, "turn-2");
+  assert.equal(next.game.gameState.turnState.status, "IN_PROGRESS");
+  assert.equal(next.game.gameState.strikeCount, 2);
+  assert.equal(next.game.gameState.maxStrikeCount, 3);
+  assert.equal(next.game.lastTurnEvaluation.feedbackMessage, "late result");
+  assert.equal(next.editor.markers[0].message, "old turn issue");
+});
+
+test("applyTurnEvaluated derives max strike count from remaining strikes when missing", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+  store.setState((state) => ({
+    ...state,
+    game: {
+      ...state.game,
+      gameState: {
+        status: "IN_PROGRESS",
+        turnState: state.game.gameState.turnState,
+      },
+    },
+  }));
+
+  const next = applyTurnEvaluated(store.getState(), {
+    gameRoomId: "room-1",
+    evaluatedTurn: {
+      turnId: "turn-1",
+      turnNumber: 1,
+      playerUserId: "user-1",
+      status: "SUBMITTED",
+    },
+    evaluationResult: {
+      isStepCleared: false,
+      judgeStatus: "FAILED",
+      strikeCount: 2,
+      remainingStrikeCount: 4,
+      feedbackMessage: "derived strikes",
+      detectedIssues: [],
+      executionSummary: {
+        status: "SUCCESS",
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      },
+    },
+    occurredAt: "2026-05-25T10:11:00Z",
+  });
+
+  assert.equal(next.game.gameState.strikeCount, 2);
+  assert.equal(next.game.gameState.maxStrikeCount, 6);
+  assert.equal(next.game.gameState.turnState.status, "SUBMITTED");
+});
+
+test("applyTurnEvaluated clamps max strike count so it never drops below used strikes", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+  store.setState((state) => ({
+    ...state,
+    game: {
+      ...state.game,
+      gameState: {
+        ...state.game.gameState,
+        maxStrikeCount: 1,
+      },
+    },
+  }));
+
+  const next = applyTurnEvaluated(store.getState(), {
+    gameRoomId: "room-1",
+    evaluatedTurn: {
+      turnId: "turn-1",
+      turnNumber: 1,
+      playerUserId: "user-1",
+      status: "SUBMITTED",
+    },
+    evaluationResult: {
+      isStepCleared: false,
+      judgeStatus: "FAILED",
+      strikeCount: 3,
+      remainingStrikeCount: 0,
+      feedbackMessage: "exhausted",
+      detectedIssues: [],
+      executionSummary: {
+        status: "SUCCESS",
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      },
+    },
+    occurredAt: "2026-05-25T10:11:00Z",
+  });
+
+  assert.equal(next.game.gameState.strikeCount, 3);
+  assert.equal(next.game.gameState.maxStrikeCount, 3);
+});
+
+test("applyTurnEvaluated ignores inactive room evaluation payloads", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+  const previous = store.getState();
+
+  const next = applyTurnEvaluated(previous, {
+    gameRoomId: "other-room",
+    evaluatedTurn: {
+      turnId: "turn-1",
+      turnNumber: 1,
+      playerUserId: "user-1",
+      status: "SUBMITTED",
+    },
+    evaluationResult: {
+      isStepCleared: false,
+      judgeStatus: "FAILED",
+      strikeCount: 1,
+      remainingStrikeCount: 2,
+      feedbackMessage: "ignored",
+      detectedIssues: [
+        {
+          issueType: "LOGIC_ERROR",
+          message: "ignored marker",
+          filePath: "main.py",
+          lineNumber: 1,
+        },
+      ],
+      executionSummary: {
+        status: "SUCCESS",
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      },
+    },
+    occurredAt: "2026-05-25T10:11:00Z",
+  });
+
+  assert.equal(next, previous);
+  assert.equal(next.game.lastTurnEvaluation, null);
+  assert.deepEqual(next.editor.markers, []);
+});
+
+test("applyTurnChanged builds a fallback turn state from backend-first identifiers", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+
+  const next = applyTurnChanged(store.getState(), {
+    gameRoomId: "room-1",
+    currentTurnId: "turn-2",
+    currentTurnUserId: "user-2",
+    occurredAt: "2026-05-25T10:11:00Z",
+  });
+
+  assert.equal(next.game.gameState.turnState.turnId, "turn-2");
+  assert.equal(next.game.gameState.turnState.turnNumber, 2);
+  assert.equal(next.game.gameState.turnState.currentPlayerId, "user-2");
+  assert.equal(next.game.gameState.turnState.startedAt, "2026-05-25T10:11:00Z");
+  assert.equal(next.game.gameState.turnState.deadlineAt, "2026-05-25T10:11:30.000Z");
+  assert.equal(next.game.lastTurnEvaluation, null);
+  assert.equal(next.game.turnSubmissionPending, false);
+  assert.deepEqual(next.editor.markers, []);
+});
+
+test("applyTurnChanged falls back to room time limit when previous turn timing is absent", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+  store.setState((state) => ({
+    ...state,
+    game: {
+      ...state.game,
+      gameState: {
+        status: "IN_PROGRESS",
+        timeLimitSeconds: undefined,
+      },
+    },
+    room: {
+      ...state.room,
+      currentRoom: {
+        gameRoomId: "room-1",
+        status: "IN_PROGRESS",
+        difficulty: "NORMAL",
+        ownerUserId: "owner-1",
+        myRole: "OWNER",
+        myMembershipStatus: "JOINED",
+        joinedParticipantCount: 2,
+        timeLimitSeconds: 45,
+        maxStrikeCount: 3,
+        minParticipants: 2,
+        maxParticipants: 4,
+        createdAt: "2026-05-25T10:00:00Z",
+        updatedAt: "2026-05-25T10:05:00Z",
+      },
+      roomWaitingState: null,
+    },
+  }));
+
+  const next = applyTurnChanged(store.getState(), {
+    gameRoomId: "room-1",
+    currentTurnId: "turn-1",
+    currentTurnUserId: "user-1",
+    occurredAt: "2026-05-25T10:12:00Z",
+  });
+
+  assert.equal(next.game.gameState.turnState.timeLimitSeconds, 45);
+  assert.equal(next.game.gameState.turnState.remainingTimeSeconds, 45);
+  assert.equal(next.game.gameState.turnState.deadlineAt, "2026-05-25T10:12:45.000Z");
+});
+
+test("applyTurnChanged preserves previous mission state when event mission state is null", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+
+  const next = applyTurnChanged(store.getState(), {
+    gameRoomId: "room-1",
+    missionState: null,
+    turnState: {
+      turnId: "turn-2",
+      turnNumber: 2,
+      currentPlayerId: "user-2",
+      startedAt: "2026-05-25T10:11:00Z",
+      deadlineAt: "2026-05-25T10:11:30Z",
+      timeLimitSeconds: 30,
+      remainingTimeSeconds: 30,
+      status: "IN_PROGRESS",
+    },
+    occurredAt: "2026-05-25T10:11:00Z",
+  });
+
+  assert.equal(next.game.missionState.missionId, "mission-1");
+  assert.equal(next.game.missionState.title, "Mission");
+  assert.equal(next.room.roomWaitingState, null);
+});
+
+test("applyTurnChanged returns the same state when fallback payload is incomplete", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+  const previous = store.getState();
+
+  const next = applyTurnChanged(previous, {
+    gameRoomId: "room-1",
+    currentTurnId: "turn-2",
+    occurredAt: "2026-05-25T10:11:00Z",
+  });
+
+  assert.equal(next, previous);
+  assert.equal(next.game.gameState.turnState.turnId, "turn-1");
+});
+
+test("applyMissionResult merges final room metadata and clears submit lock", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+  store.setState((state) => ({
+    ...state,
+    realtime: {
+      ...state.realtime,
+      participants: [
+        {
+          userId: "user-1",
+          nickname: "A",
+          role: "OWNER",
+          membershipStatus: "JOINED",
+        },
+        {
+          userId: "user-2",
+          nickname: "B",
+          role: "PARTICIPANT",
+          membershipStatus: "JOINED",
+        },
+      ],
+    },
+    room: {
+      ...state.room,
+      currentRoom: {
+        gameRoomId: "room-1",
+        status: "IN_PROGRESS",
+        difficulty: "NORMAL",
+        ownerUserId: "owner-1",
+        myRole: "OWNER",
+        myMembershipStatus: "JOINED",
+        joinedParticipantCount: 1,
+        timeLimitSeconds: 30,
+        maxStrikeCount: 3,
+        minParticipants: 2,
+        maxParticipants: 4,
+        createdAt: "2026-05-25T10:00:00Z",
+        updatedAt: "2026-05-25T10:05:00Z",
+      },
+      roomWaitingState: {
+        currentRoom: {
+          gameRoomId: "room-1",
+          status: "IN_PROGRESS",
+          difficulty: "NORMAL",
+          ownerUserId: "owner-1",
+          myRole: "OWNER",
+          myMembershipStatus: "JOINED",
+          joinedParticipantCount: 1,
+          timeLimitSeconds: 30,
+          maxStrikeCount: 3,
+          minParticipants: 2,
+          maxParticipants: 4,
+          createdAt: "2026-05-25T10:00:00Z",
+          updatedAt: "2026-05-25T10:05:00Z",
+        },
+        participants: [],
+        changedParticipant: null,
+        gameState: state.game.gameState,
+        missionState: state.game.missionState,
+      },
+    },
+  }));
+
+  const result = applyMissionResult(store.getState(), {
+    gameRoomId: "room-1",
+    gameState: {
+      status: "FINISHED",
+      difficulty: "HARD",
+      timeLimitSeconds: 60,
+      maxStrikeCount: 5,
+      turnState: {
+        turnId: "turn-1",
+        turnNumber: 1,
+        currentPlayerId: "user-1",
+        startedAt: "2026-05-25T10:10:00Z",
+        deadlineAt: "2026-05-25T10:11:00Z",
+        timeLimitSeconds: 60,
+        remainingTimeSeconds: 0,
+        status: "SUBMITTED",
+      },
+    },
+    missionResult: {
+      missionId: "mission-1",
+      isMissionCleared: true,
+      judgeStatus: "PASSED",
+      selectedInputs: ["1 2"],
+      expectedOutputs: ["3"],
+      actualOutputs: ["3"],
+      strikeCount: 0,
+      remainingStrikeCount: 5,
+      feedbackMessage: "cleared",
+      detectedIssues: [],
+    },
+    occurredAt: "2026-05-25T10:12:00Z",
+  });
+
+  assert.equal(result.navigationTarget, "/rooms/room-1/result");
+  assert.equal(result.state.game.turnSubmissionPending, false);
+  assert.equal(result.state.game.gameState.status, "FINISHED");
+  assert.equal(result.state.room.currentRoom.status, "FINISHED");
+  assert.equal(result.state.room.currentRoom.difficulty, "HARD");
+  assert.equal(result.state.room.currentRoom.timeLimitSeconds, 60);
+  assert.equal(result.state.room.currentRoom.joinedParticipantCount, 2);
+  assert.equal(result.state.room.roomWaitingState.gameState.status, "FINISHED");
+});
+
+test("applyMissionResult still routes to result when the current room snapshot is absent", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+  store.setState((state) => ({
+    ...state,
+    room: {
+      ...state.room,
+      currentRoom: null,
+      roomWaitingState: null,
+    },
+  }));
+
+  const result = applyMissionResult(store.getState(), {
+    gameRoomId: "room-1",
+    gameState: {
+      status: "FINISHED",
+    },
+    missionResult: {
+      missionId: "mission-1",
+      isMissionCleared: false,
+      judgeStatus: "FAILED",
+      selectedInputs: [],
+      expectedOutputs: [],
+      actualOutputs: [],
+      strikeCount: 3,
+      remainingStrikeCount: 0,
+      feedbackMessage: "failed",
+      detectedIssues: [],
+    },
+    occurredAt: "2026-05-25T10:12:00Z",
+  });
+
+  assert.equal(result.navigationTarget, "/rooms/room-1/result");
+  assert.equal(result.state.room.currentRoom, null);
+  assert.equal(result.state.game.missionResult.feedbackMessage, "failed");
+  assert.equal(result.state.game.gameState.status, "FINISHED");
+});
+
+test("bindRoomRealtimeEvents applies evaluate, turn-change, and mission-result in order", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+  const handlers = new Map();
+  const socket = {
+    on(eventName, handler) {
+      handlers.set(eventName, handler);
+    },
+    off(eventName) {
+      handlers.delete(eventName);
+    },
+  };
+  const navigations = [];
+  setRealtimeNavigateHandler((target) => {
+    navigations.push(target);
+  });
+
+  try {
+    bindRoomRealtimeEvents(socket, store);
+
+    handlers.get("turn-evaluated")({
+      gameRoomId: "room-1",
+      evaluatedTurn: {
+        turnId: "turn-1",
+        turnNumber: 1,
+        playerUserId: "user-1",
+        status: "SUBMITTED",
+      },
+      evaluationResult: {
+        isStepCleared: true,
+        judgeStatus: "PASSED",
+        strikeCount: 0,
+        remainingStrikeCount: 3,
+        feedbackMessage: "passed",
+        detectedIssues: [],
+        executionSummary: {
+          status: "SUCCESS",
+          exitCode: 0,
+          stdout: "ok",
+          stderr: "",
+        },
+      },
+      occurredAt: "2026-05-25T10:11:00Z",
+    });
+
+    assert.equal(store.getState().game.lastTurnEvaluation.feedbackMessage, "passed");
+    assert.equal(store.getState().game.turnSubmissionPending, true);
+
+    handlers.get("turn-changed")({
+      gameRoomId: "room-1",
+      turnState: {
+        turnId: "turn-2",
+        turnNumber: 2,
+        currentPlayerId: "user-2",
+        startedAt: "2026-05-25T10:11:00Z",
+        deadlineAt: "2026-05-25T10:11:30Z",
+        timeLimitSeconds: 30,
+        remainingTimeSeconds: 30,
+        status: "IN_PROGRESS",
+      },
+      occurredAt: "2026-05-25T10:11:00Z",
+    });
+
+    assert.equal(store.getState().game.lastTurnEvaluation, null);
+    assert.equal(store.getState().game.turnSubmissionPending, false);
+    assert.equal(store.getState().game.gameState.turnState.turnId, "turn-2");
+
+    handlers.get("mission-result")({
+      gameRoomId: "room-1",
+      gameState: {
+        status: "FINISHED",
+      },
+      missionResult: {
+        missionId: "mission-1",
+        isMissionCleared: true,
+        judgeStatus: "PASSED",
+        selectedInputs: ["1 2"],
+        expectedOutputs: ["3"],
+        actualOutputs: ["3"],
+        strikeCount: 0,
+        remainingStrikeCount: 3,
+        feedbackMessage: "final pass",
+        detectedIssues: [],
+      },
+      occurredAt: "2026-05-25T10:12:00Z",
+    });
+
+    assert.deepEqual(navigations, ["/rooms/room-1/result"]);
+    assert.equal(store.getState().game.gameState.status, "FINISHED");
+    assert.equal(store.getState().game.missionResult.feedbackMessage, "final pass");
+  } finally {
+    setRealtimeNavigateHandler(null);
+  }
+});
+
+test("bindRoomRealtimeEvents ignores mission-result payloads without a mission result body", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+  const handlers = new Map();
+  const socket = {
+    on(eventName, handler) {
+      handlers.set(eventName, handler);
+    },
+    off(eventName) {
+      handlers.delete(eventName);
+    },
+  };
+  const navigations = [];
+  setRealtimeNavigateHandler((target) => {
+    navigations.push(target);
+  });
+
+  try {
+    bindRoomRealtimeEvents(socket, store);
+
+    handlers.get("mission-result")({
+      gameRoomId: "room-1",
+      gameState: {
+        status: "FINISHED",
+      },
+      occurredAt: "2026-05-25T10:12:00Z",
+    });
+
+    assert.deepEqual(navigations, []);
+    assert.equal(store.getState().game.missionResult, null);
+    assert.equal(store.getState().game.gameState.status, "IN_PROGRESS");
+  } finally {
+    setRealtimeNavigateHandler(null);
+  }
+});
+
+test("bindRoomRealtimeEvents ignores turn-changed payloads without any turn identifier", () => {
+  const store = createAppStore();
+  seedGameplayStore(store);
+  const handlers = new Map();
+  const socket = {
+    on(eventName, handler) {
+      handlers.set(eventName, handler);
+    },
+    off(eventName) {
+      handlers.delete(eventName);
+    },
+  };
+
+  bindRoomRealtimeEvents(socket, store);
+
+  handlers.get("turn-changed")({
+    gameRoomId: "room-1",
+    occurredAt: "2026-05-25T10:11:00Z",
+  });
+
+  assert.equal(store.getState().game.gameState.turnState.turnId, "turn-1");
+  assert.equal(store.getState().game.turnSubmissionPending, true);
+});
