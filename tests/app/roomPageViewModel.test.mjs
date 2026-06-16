@@ -1410,3 +1410,835 @@ test("getEvaluationDisplayCopy handles issue entries without message text", () =
   assert.ok(copy.errorMessage.includes("1"));
   assert.equal(copy.errorMessage.includes("   "), false);
 });
+
+test("buildMissionFileTabs falls back to editor files when projectStructure is empty", () => {
+  const tabs = buildMissionFileTabs(
+    {
+      missionId: "mission-empty-project",
+      language: "javascript",
+      projectStructure: {
+        rootPath: "/workspace",
+        entryFilePath: undefined,
+        files: [],
+      },
+    },
+    {
+      "src/main.js": "console.log(1);",
+      "src/util.js": "export const value = 1;",
+    },
+  );
+
+  assert.deepEqual(tabs, [
+    {
+      filePath: "src/main.js",
+      fileName: "main.js",
+      language: "javascript",
+      readonly: false,
+    },
+    {
+      filePath: "src/util.js",
+      fileName: "util.js",
+      language: "javascript",
+      readonly: false,
+    },
+  ]);
+});
+
+test("buildMissionFileTabs keeps backend readonly and language metadata per file", () => {
+  const tabs = buildMissionFileTabs(
+    {
+      missionId: "mission-file-metadata",
+      language: "python",
+      projectStructure: {
+        rootPath: "/workspace",
+        entryFilePath: "src/main.py",
+        files: [
+          {
+            filePath: "src/main.py",
+            language: "python",
+            readonly: false,
+          },
+          {
+            filePath: "README.md",
+            language: "markdown",
+            readonly: true,
+          },
+          {
+            filePath: "data/input.txt",
+            language: "text",
+            readonly: true,
+          },
+        ],
+      },
+    },
+    {
+      "legacy.py": "ignored",
+    },
+  );
+
+  assert.deepEqual(
+    tabs.map((tab) => ({
+      filePath: tab.filePath,
+      language: tab.language,
+      readonly: tab.readonly,
+    })),
+    [
+      {
+        filePath: "src/main.py",
+        language: "python",
+        readonly: false,
+      },
+      {
+        filePath: "README.md",
+        language: "markdown",
+        readonly: true,
+      },
+      {
+        filePath: "data/input.txt",
+        language: "text",
+        readonly: true,
+      },
+    ],
+  );
+});
+
+test("getMissionFileName handles nested, root, and trailing slash paths", () => {
+  const cases = [
+    {
+      path: "src/main.py",
+      expected: "main.py",
+    },
+    {
+      path: "main.py",
+      expected: "main.py",
+    },
+    {
+      path: "/workspace/src/main.py",
+      expected: "main.py",
+    },
+    {
+      path: "src/",
+      expected: "src/",
+    },
+    {
+      path: "",
+      expected: "",
+    },
+  ];
+
+  for (const testCase of cases) {
+    assert.equal(getMissionFileName(testCase.path), testCase.expected);
+  }
+});
+
+test("resolveActiveFilePath returns null when no mission file tabs exist", () => {
+  assert.equal(resolveActiveFilePath("main.py", []), null);
+  assert.equal(resolveActiveFilePath(null, []), null);
+});
+
+test("resolveActiveFilePath does not accept a stale active path from a previous mission", () => {
+  const tabs = [
+    {
+      filePath: "mission-b/main.py",
+      fileName: "main.py",
+      language: "python",
+      readonly: false,
+    },
+    {
+      filePath: "mission-b/helper.py",
+      fileName: "helper.py",
+      language: "python",
+      readonly: false,
+    },
+  ];
+
+  assert.equal(resolveActiveFilePath("mission-a/main.py", tabs), "mission-b/main.py");
+  assert.equal(resolveActiveFilePath("mission-b/helper.py", tabs), "mission-b/helper.py");
+});
+
+test("findMissionFileTab returns the first matching path when duplicate tabs are reflected", () => {
+  const tabs = [
+    {
+      filePath: "main.py",
+      fileName: "main.py",
+      language: "python",
+      readonly: false,
+    },
+    {
+      filePath: "main.py",
+      fileName: "main.py",
+      language: "python",
+      readonly: true,
+    },
+  ];
+
+  const tab = findMissionFileTab(tabs, "main.py");
+
+  assert.equal(tab.readonly, false);
+});
+
+test("canEditGameplay rejects missing auth, missing turn, and completed turn states", () => {
+  const inProgressGameState = {
+    status: "IN_PROGRESS",
+    turnState: {
+      turnId: "turn-1",
+      turnNumber: 1,
+      currentPlayerId: "user-1",
+      startedAt: "2026-05-25T10:00:00Z",
+      deadlineAt: "2026-05-25T10:00:30Z",
+      timeLimitSeconds: 30,
+      remainingTimeSeconds: 30,
+      status: "IN_PROGRESS",
+    },
+  };
+
+  assert.equal(canEditGameplay(null, inProgressGameState), false);
+  assert.equal(canEditGameplay(undefined, inProgressGameState), false);
+  assert.equal(canEditGameplay("user-1", null), false);
+  assert.equal(canEditGameplay("user-1", { status: "IN_PROGRESS" }), false);
+  assert.equal(
+    canEditGameplay("user-1", {
+      ...inProgressGameState,
+      turnState: {
+        ...inProgressGameState.turnState,
+        status: "SUBMITTED",
+      },
+    }),
+    false,
+  );
+  assert.equal(
+    canEditGameplay("user-1", {
+      ...inProgressGameState,
+      turnState: {
+        ...inProgressGameState.turnState,
+        status: "EVALUATED",
+      },
+    }),
+    false,
+  );
+});
+
+test("computeRemainingSeconds clamps expired, invalid, and missing deadlines to zero", () => {
+  const now = Date.parse("2026-05-25T10:00:30.000Z");
+
+  assert.equal(computeRemainingSeconds(undefined, now), 0);
+  assert.equal(computeRemainingSeconds("not-a-date", now), 0);
+  assert.equal(computeRemainingSeconds("2026-05-25T10:00:00.000Z", now), 0);
+  assert.equal(computeRemainingSeconds("2026-05-25T10:00:29.100Z", now), 0);
+});
+
+test("computeRemainingSeconds rounds up positive fractional seconds", () => {
+  const now = Date.parse("2026-05-25T10:00:00.000Z");
+
+  assert.equal(computeRemainingSeconds("2026-05-25T10:00:00.001Z", now), 1);
+  assert.equal(computeRemainingSeconds("2026-05-25T10:00:01.001Z", now), 2);
+  assert.equal(computeRemainingSeconds("2026-05-25T10:00:29.001Z", now), 30);
+});
+
+test("computeRemainingSeconds supports pre-start offsets without overshooting invalid dates", () => {
+  const now = Date.parse("2026-05-25T10:00:05.000Z");
+
+  assert.equal(computeRemainingSeconds("2026-05-25T10:00:10.000Z", now, 5000), 10);
+  assert.equal(computeRemainingSeconds("not-a-date", now, 5000), 0);
+});
+
+test("formatTurnTimerText keeps fixed-width seconds for exact minute boundaries", () => {
+  assert.equal(formatTurnTimerText(60), "01 : 00");
+  assert.equal(formatTurnTimerText(600), "10 : 00");
+  assert.equal(formatTurnTimerText(601), "10 : 01");
+});
+
+test("buildStrikeHeartDisplay clamps negative and overflow strike counts", () => {
+  assert.deepEqual(buildStrikeHeartDisplay(undefined, undefined), {
+    remaining: 0,
+    lost: 0,
+  });
+  assert.deepEqual(buildStrikeHeartDisplay(-3, 5), {
+    remaining: 5,
+    lost: 0,
+  });
+  assert.deepEqual(buildStrikeHeartDisplay(8, 5), {
+    remaining: 0,
+    lost: 5,
+  });
+  assert.deepEqual(buildStrikeHeartDisplay(2, -1), {
+    remaining: 0,
+    lost: 0,
+  });
+});
+
+test("getLanguageDisplayLabel returns custom language labels unchanged", () => {
+  assert.equal(getLanguageDisplayLabel("TypeScript"), "TypeScript");
+  assert.equal(getLanguageDisplayLabel(" python3 "), " python3 ");
+  assert.match(getLanguageDisplayLabel("Python"), /Python$/);
+});
+
+test("buildParticipantRows removes invited, left, and denied rows from gameplay participants", () => {
+  const rows = buildParticipantRows(
+    [
+      {
+        userId: "owner-1",
+        nickname: "Owner",
+        role: "OWNER",
+        membershipStatus: "JOINED",
+      },
+      {
+        userId: "user-2",
+        nickname: "Invited",
+        role: "PARTICIPANT",
+        membershipStatus: "INVITED",
+      },
+      {
+        userId: "user-3",
+        nickname: "Left",
+        role: "PARTICIPANT",
+        membershipStatus: "LEFT",
+      },
+      {
+        userId: "user-4",
+        nickname: "Denied",
+        role: "PARTICIPANT",
+        membershipStatus: "DENIED",
+      },
+    ],
+    "owner-1",
+    "owner-1",
+  );
+
+  assert.deepEqual(
+    rows.map((row) => row.nickname),
+    ["Owner"],
+  );
+  assert.equal(rows[0].isCurrentTurn, true);
+  assert.equal(rows[0].isCurrentUser, true);
+  assert.equal(typeof rows[0].roleLabel, "string");
+});
+
+test("buildParticipantRows preserves duplicate nicknames by user id", () => {
+  const rows = buildParticipantRows(
+    [
+      {
+        userId: "user-1",
+        nickname: "Player",
+        role: "PARTICIPANT",
+        membershipStatus: "JOINED",
+      },
+      {
+        userId: "user-2",
+        nickname: "Player",
+        role: "PARTICIPANT",
+        membershipStatus: "JOINED",
+      },
+    ],
+    "user-2",
+    "user-1",
+  );
+
+  assert.deepEqual(
+    rows.map((row) => ({
+      userId: row.userId,
+      isCurrentUser: row.isCurrentUser,
+      isCurrentTurn: row.isCurrentTurn,
+    })),
+    [
+      {
+        userId: "user-1",
+        isCurrentUser: true,
+        isCurrentTurn: false,
+      },
+      {
+        userId: "user-2",
+        isCurrentUser: false,
+        isCurrentTurn: true,
+      },
+    ],
+  );
+});
+
+test("getCurrentTurnParticipantLabel returns a self label for the current user turn", () => {
+  const label = getCurrentTurnParticipantLabel([
+    {
+      userId: "user-1",
+      nickname: "Alpha",
+      isCurrentUser: true,
+      isCurrentTurn: true,
+      roleLabel: null,
+    },
+  ]);
+
+  assert.equal(typeof label, "string");
+  assert.equal(label.includes("Alpha"), false);
+  assert.ok(label.length > 0);
+});
+
+test("getMissionDisplayCopy trims blank titles to fallback copy while keeping explicit descriptions", () => {
+  const copy = getMissionDisplayCopy({
+    missionId: "mission-blank-title",
+    title: "   ",
+    description: "  Keep this description  ",
+  });
+
+  assert.notEqual(copy.title, "");
+  assert.equal(copy.description, "Keep this description");
+});
+
+test("getMissionDisplayCopy keeps explicit title when description is blank", () => {
+  const copy = getMissionDisplayCopy({
+    missionId: "mission-blank-description",
+    title: "Explicit title",
+    description: "   ",
+  });
+
+  assert.equal(copy.title, "Explicit title");
+  assert.notEqual(copy.description, "");
+});
+
+test("buildMissionProgressSteps uses current mission status for fallback single-step missions", () => {
+  const steps = buildMissionProgressSteps({
+    missionId: "mission-single-status",
+    title: "Single step mission",
+    currentStepId: "step-current",
+    currentStepStatus: "FAILED",
+    stepOrder: 4,
+    stepTitle: "Current work",
+    stepDescription: "Review the current implementation.",
+  });
+
+  assert.deepEqual(steps, [
+    {
+      key: "step-current",
+      stepOrder: 4,
+      title: "Current work",
+      description: "Review the current implementation.",
+      status: "FAILED",
+      isActive: true,
+    },
+  ]);
+});
+
+test("buildMissionProgressSteps falls back to mission id when current step id is missing", () => {
+  const steps = buildMissionProgressSteps({
+    missionId: "mission-as-key",
+    title: "Mission title",
+    description: "Mission description",
+    currentStepStatus: "READY",
+  });
+
+  assert.equal(steps.length, 1);
+  assert.equal(steps[0].key, "mission-as-key");
+  assert.equal(steps[0].stepOrder, 1);
+  assert.equal(steps[0].title, "Mission title");
+  assert.equal(steps[0].description, "Mission description");
+  assert.equal(steps[0].status, "READY");
+});
+
+test("buildMissionProgressSteps marks no listed step active when backend current id is absent", () => {
+  const steps = buildMissionProgressSteps({
+    missionId: "mission-no-active-listed-step",
+    currentStepStatus: "IN_PROGRESS",
+    steps: [
+      {
+        gameRoomMissionStepId: "step-1",
+        missionTemplateStepId: "template-1",
+        stepOrder: 1,
+        title: "Step one",
+        description: "First step",
+        status: "READY",
+      },
+      {
+        gameRoomMissionStepId: "step-2",
+        missionTemplateStepId: "template-2",
+        stepOrder: 2,
+        title: "Step two",
+        description: "Second step",
+        status: "LOCKED",
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    steps.map((step) => step.isActive),
+    [false, false],
+  );
+});
+
+test("getMissionStepStatusLabel returns fallback label for unknown reflected status", () => {
+  const label = getMissionStepStatusLabel("UNKNOWN_STATUS");
+
+  assert.equal(typeof label, "string");
+  assert.ok(label.length > 0);
+});
+
+test("canMutateMissionFile allows only editable tabs during editable turns", () => {
+  const editableTab = {
+    filePath: "main.py",
+    fileName: "main.py",
+    language: "python",
+    readonly: false,
+  };
+  const readonlyTab = {
+    ...editableTab,
+    filePath: "README.md",
+    fileName: "README.md",
+    readonly: true,
+  };
+
+  const cases = [
+    {
+      canEditTurn: true,
+      tab: editableTab,
+      expected: true,
+    },
+    {
+      canEditTurn: true,
+      tab: readonlyTab,
+      expected: false,
+    },
+    {
+      canEditTurn: false,
+      tab: editableTab,
+      expected: false,
+    },
+    {
+      canEditTurn: true,
+      tab: undefined,
+      expected: false,
+    },
+  ];
+
+  for (const testCase of cases) {
+    assert.equal(
+      canMutateMissionFile(testCase.canEditTurn, testCase.tab),
+      testCase.expected,
+    );
+  }
+});
+
+test("isEditorContentReadOnly prioritizes realtime, guide, timeout, and turn ownership locks", () => {
+  const editableTab = {
+    filePath: "main.py",
+    fileName: "main.py",
+    language: "python",
+    readonly: false,
+  };
+
+  const baseInput = {
+    canEditTurn: true,
+    tab: editableTab,
+    isTurnExpired: false,
+    isMissionGuideOpen: false,
+    isRealtimeUnavailable: false,
+  };
+
+  assert.equal(isEditorContentReadOnly(baseInput), false);
+  assert.equal(
+    isEditorContentReadOnly({
+      ...baseInput,
+      isRealtimeUnavailable: true,
+    }),
+    true,
+  );
+  assert.equal(
+    isEditorContentReadOnly({
+      ...baseInput,
+      isMissionGuideOpen: true,
+    }),
+    true,
+  );
+  assert.equal(
+    isEditorContentReadOnly({
+      ...baseInput,
+      isTurnExpired: true,
+    }),
+    true,
+  );
+  assert.equal(
+    isEditorContentReadOnly({
+      ...baseInput,
+      canEditTurn: false,
+    }),
+    true,
+  );
+});
+
+test("getEvaluationDisplayCopy treats pending evaluation as the highest priority copy", () => {
+  const copy = getEvaluationDisplayCopy({
+    turnSubmissionPending: true,
+    evaluation: null,
+  });
+
+  assert.equal(typeof copy.statusLabel, "string");
+  assert.equal(typeof copy.analysisNotice, "string");
+  assert.equal(typeof copy.feedbackMessage, "string");
+  assert.equal(typeof copy.errorMessage, "string");
+  assert.ok(copy.statusLabel.length > 0);
+  assert.ok(copy.analysisNotice.length > 0);
+});
+
+test("getEvaluationDisplayCopy ignores pending flag once an evaluation result exists", () => {
+  const copy = getEvaluationDisplayCopy({
+    turnSubmissionPending: true,
+    evaluation: {
+      isStepCleared: false,
+      judgeStatus: "FAILED",
+      strikeCount: 1,
+      remainingStrikeCount: 2,
+      feedbackMessage: "Submitted result arrived",
+      detectedIssues: [
+        {
+          issueType: "LOGIC_ERROR",
+          message: "Check branch condition",
+          filePath: "main.py",
+          lineNumber: 7,
+        },
+      ],
+      executionSummary: {
+        status: "SUCCESS",
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      },
+    },
+  });
+
+  assert.equal(copy.analysisNotice, "Submitted result arrived");
+  assert.equal(copy.feedbackMessage, "Submitted result arrived");
+  assert.ok(copy.errorMessage.includes("1"));
+  assert.ok(copy.errorMessage.includes("Check branch condition"));
+});
+
+test("buildMissionFileTabs derives readable names for deeply nested reflected files", () => {
+  const tabs = buildMissionFileTabs(
+    {
+      missionId: "mission-nested-tabs",
+      language: "python",
+      projectStructure: {
+        rootPath: "/workspace",
+        entryFilePath: "apps/problem/src/main.py",
+        files: [
+          {
+            filePath: "apps/problem/src/main.py",
+            language: "python",
+            readonly: false,
+          },
+          {
+            filePath: "apps/problem/tests/test_main.py",
+            language: "python",
+            readonly: true,
+          },
+          {
+            filePath: "apps/problem/docs/guide.md",
+            language: "markdown",
+            readonly: true,
+          },
+        ],
+      },
+    },
+    {},
+  );
+
+  assert.deepEqual(
+    tabs.map((tab) => tab.fileName),
+    ["main.py", "test_main.py", "guide.md"],
+  );
+});
+
+test("buildMissionFileTabs returns an empty list when neither mission files nor editor files exist", () => {
+  assert.deepEqual(buildMissionFileTabs(null, {}), []);
+  assert.deepEqual(
+    buildMissionFileTabs(
+      {
+        missionId: "mission-empty",
+        projectStructure: {
+          rootPath: "/workspace",
+          files: [],
+        },
+      },
+      {},
+    ),
+    [],
+  );
+});
+
+test("resolveActiveFilePath follows tab order after current file is removed", () => {
+  const firstTabSet = [
+    {
+      filePath: "main.py",
+      fileName: "main.py",
+      language: "python",
+      readonly: false,
+    },
+    {
+      filePath: "helper.py",
+      fileName: "helper.py",
+      language: "python",
+      readonly: false,
+    },
+  ];
+  const secondTabSet = [
+    {
+      filePath: "helper.py",
+      fileName: "helper.py",
+      language: "python",
+      readonly: false,
+    },
+  ];
+
+  const activeBeforeRemoval = resolveActiveFilePath("main.py", firstTabSet);
+  const activeAfterRemoval = resolveActiveFilePath(activeBeforeRemoval, secondTabSet);
+
+  assert.equal(activeBeforeRemoval, "main.py");
+  assert.equal(activeAfterRemoval, "helper.py");
+});
+
+test("isEditorContentReadOnly treats readonly tab as locked only after global edit checks pass", () => {
+  const readonlyTab = {
+    filePath: "README.md",
+    fileName: "README.md",
+    language: "markdown",
+    readonly: true,
+  };
+
+  assert.equal(
+    isEditorContentReadOnly({
+      canEditTurn: true,
+      tab: readonlyTab,
+      isTurnExpired: false,
+      isMissionGuideOpen: false,
+      isRealtimeUnavailable: false,
+    }),
+    true,
+  );
+  assert.equal(
+    isEditorContentReadOnly({
+      canEditTurn: true,
+      tab: undefined,
+      isTurnExpired: false,
+      isMissionGuideOpen: false,
+      isRealtimeUnavailable: false,
+    }),
+    false,
+  );
+});
+
+test("buildParticipantRows keeps owner label nullable for non-owner participants", () => {
+  const rows = buildParticipantRows(
+    [
+      {
+        userId: "owner-1",
+        nickname: "Owner",
+        role: "OWNER",
+        membershipStatus: "JOINED",
+      },
+      {
+        userId: "user-2",
+        nickname: "Member",
+        role: "PARTICIPANT",
+        membershipStatus: "JOINED",
+      },
+    ],
+    "user-2",
+    "owner-1",
+  );
+
+  assert.equal(typeof rows[0].roleLabel, "string");
+  assert.equal(rows[1].roleLabel, null);
+  assert.equal(rows[1].isCurrentTurn, true);
+});
+
+test("buildMissionProgressSteps preserves listed step statuses instead of current summary status", () => {
+  const steps = buildMissionProgressSteps({
+    missionId: "mission-listed-status",
+    gameRoomMissionStepId: "step-2",
+    currentStepStatus: "FAILED",
+    steps: [
+      {
+        gameRoomMissionStepId: "step-1",
+        missionTemplateStepId: "template-1",
+        stepOrder: 1,
+        title: "First",
+        description: "First listed step",
+        status: "CLEARED",
+      },
+      {
+        gameRoomMissionStepId: "step-2",
+        missionTemplateStepId: "template-2",
+        stepOrder: 2,
+        title: "Second",
+        description: "Second listed step",
+        status: "IN_PROGRESS",
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    steps.map((step) => step.status),
+    ["CLEARED", "IN_PROGRESS"],
+  );
+  assert.deepEqual(
+    steps.map((step) => step.isActive),
+    [false, true],
+  );
+});
+
+test("getEvaluationDisplayCopy reports failed evaluation without detected issues as clean issue list", () => {
+  const copy = getEvaluationDisplayCopy({
+    turnSubmissionPending: false,
+    evaluation: {
+      isStepCleared: false,
+      judgeStatus: "FAILED",
+      strikeCount: 1,
+      remainingStrikeCount: 2,
+      feedbackMessage: "",
+      detectedIssues: [],
+      executionSummary: {
+        status: "RUNTIME_ERROR",
+        exitCode: 1,
+        stdout: "",
+        stderr: "Traceback",
+      },
+    },
+  });
+
+  assert.equal(typeof copy.statusLabel, "string");
+  assert.ok(copy.analysisNotice.length > 0);
+  assert.ok(copy.feedbackMessage.length > 0);
+  assert.equal(copy.errorMessage.includes("1"), false);
+});
+
+test("getEvaluationDisplayCopy keeps first detected issue even when later issues are more detailed", () => {
+  const copy = getEvaluationDisplayCopy({
+    turnSubmissionPending: false,
+    evaluation: {
+      isStepCleared: false,
+      judgeStatus: "FAILED",
+      strikeCount: 2,
+      remainingStrikeCount: 1,
+      feedbackMessage: "Review branch handling",
+      detectedIssues: [
+        {
+          issueType: "LOGIC_ERROR",
+          message: "First issue",
+          filePath: "main.py",
+          lineNumber: 3,
+        },
+        {
+          issueType: "RUNTIME_ERROR",
+          message: "Second issue",
+          filePath: "main.py",
+          lineNumber: 8,
+        },
+      ],
+      executionSummary: {
+        status: "SUCCESS",
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      },
+    },
+  });
+
+  assert.ok(copy.errorMessage.includes("2"));
+  assert.ok(copy.errorMessage.includes("First issue"));
+  assert.equal(copy.errorMessage.includes("Second issue"), false);
+});
