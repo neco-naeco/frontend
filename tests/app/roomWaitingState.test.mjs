@@ -543,3 +543,765 @@ test("isSameRoomWaitingState returns true for semantically identical waiting-roo
 
   assert.equal(isSameRoomWaitingState(left, right), true);
 });
+
+test("getRealtimeWaitingRoomSnapshot returns null for inactive rooms and missing game state", () => {
+  assert.equal(
+    getRealtimeWaitingRoomSnapshot(
+      {
+        game: {
+          gameState: { status: "IN_PROGRESS" },
+          missionState: { missionId: "mission-1" },
+        },
+        realtime: { activeRoomId: "room-2" },
+      },
+      "room-1",
+    ),
+    null,
+  );
+
+  assert.equal(
+    getRealtimeWaitingRoomSnapshot(
+      {
+        game: {
+          gameState: null,
+          missionState: { missionId: "mission-1" },
+        },
+        realtime: { activeRoomId: "room-1" },
+      },
+      "room-1",
+    ),
+    null,
+  );
+});
+
+test("resolveWaitingRoomCurrentRoom reuses the store room when realtime status already matches", () => {
+  const httpRoom = createRoom({
+    status: "WAITING",
+    difficulty: "NORMAL",
+    joinedParticipantCount: 1,
+  });
+  const storeCurrentRoom = createRoom({
+    status: "IN_PROGRESS",
+    difficulty: "HARD",
+    joinedParticipantCount: 3,
+    updatedAt: "2026-05-25T10:20:00Z",
+  });
+  const realtimeSnapshot = {
+    gameState: {
+      status: "IN_PROGRESS",
+      difficulty: "HARD",
+      timeLimitSeconds: 60,
+      maxStrikeCount: 5,
+    },
+    missionState: { missionId: "mission-1" },
+  };
+
+  const resolved = resolveWaitingRoomCurrentRoom({
+    httpRoom,
+    storeCurrentRoom,
+    realtimeSnapshot,
+    participants: [
+      {
+        userId: "owner-1",
+        nickname: "Owner",
+        role: "OWNER",
+        membershipStatus: "JOINED",
+      },
+    ],
+  });
+
+  assert.equal(resolved, storeCurrentRoom);
+});
+
+test("resolveWaitingRoomCurrentRoom merges realtime metadata when store room is stale", () => {
+  const httpRoom = createRoom({
+    status: "WAITING",
+    difficulty: "NORMAL",
+    timeLimitSeconds: 30,
+    maxStrikeCount: 3,
+    joinedParticipantCount: 1,
+  });
+
+  const resolved = resolveWaitingRoomCurrentRoom({
+    httpRoom,
+    storeCurrentRoom: createRoom({
+      status: "WAITING",
+      difficulty: "NORMAL",
+      joinedParticipantCount: 1,
+    }),
+    realtimeSnapshot: {
+      gameState: {
+        status: "IN_PROGRESS",
+        difficulty: "HARD",
+        timeLimitSeconds: 45,
+        maxStrikeCount: 5,
+        minParticipants: 2,
+        maxParticipants: 5,
+      },
+      missionState: { missionId: "mission-1" },
+    },
+    participants: [
+      {
+        userId: "owner-1",
+        nickname: "Owner",
+        role: "OWNER",
+        membershipStatus: "JOINED",
+      },
+      {
+        userId: "user-2",
+        nickname: "Beta",
+        role: "PARTICIPANT",
+        membershipStatus: "JOINED",
+      },
+    ],
+  });
+
+  assert.equal(resolved.status, "IN_PROGRESS");
+  assert.equal(resolved.difficulty, "HARD");
+  assert.equal(resolved.timeLimitSeconds, 45);
+  assert.equal(resolved.maxStrikeCount, 5);
+  assert.equal(resolved.maxParticipants, 5);
+  assert.equal(resolved.joinedParticipantCount, 2);
+});
+
+test("resolveWaitingRoomCurrentRoom uses http room when no realtime snapshot is available", () => {
+  const httpRoom = createRoom({
+    status: "WAITING",
+    difficulty: "EASY",
+  });
+
+  const resolved = resolveWaitingRoomCurrentRoom({
+    httpRoom,
+    storeCurrentRoom: createRoom({
+      status: "IN_PROGRESS",
+      difficulty: "HARD",
+    }),
+    realtimeSnapshot: null,
+    participants: [],
+  });
+
+  assert.equal(resolved, httpRoom);
+});
+
+test("buildRoomWaitingState prioritizes the current user when multiple participant changes arrive", () => {
+  const previousState = {
+    currentRoom: createRoom(),
+    participants: [
+      {
+        userId: "owner-1",
+        nickname: "Owner",
+        role: "OWNER",
+        membershipStatus: "JOINED",
+      },
+      {
+        userId: "user-1",
+        nickname: "Alpha",
+        role: "PARTICIPANT",
+        membershipStatus: "INVITED",
+      },
+      {
+        userId: "user-2",
+        nickname: "Beta",
+        role: "PARTICIPANT",
+        membershipStatus: "INVITED",
+      },
+    ],
+    changedParticipant: null,
+    gameState: {
+      status: "WAITING",
+      difficulty: "NORMAL",
+      timeLimitSeconds: 30,
+      maxStrikeCount: 3,
+      minParticipants: 2,
+      maxParticipants: 4,
+    },
+    missionState: null,
+  };
+
+  const result = buildRoomWaitingState({
+    currentRoom: createRoom({
+      joinedParticipantCount: 3,
+    }),
+    participants: [
+      createParticipant({
+        userId: "owner-1",
+        nickname: "Owner",
+        role: "OWNER",
+        membershipStatus: "JOINED",
+      }),
+      createParticipant({
+        userId: "user-1",
+        nickname: "Alpha",
+        role: "PARTICIPANT",
+        membershipStatus: "JOINED",
+      }),
+      createParticipant({
+        userId: "user-2",
+        nickname: "Beta",
+        role: "PARTICIPANT",
+        membershipStatus: "JOINED",
+      }),
+    ],
+    previousState,
+    currentUser: {
+      userId: "user-1",
+      nickname: "Alpha",
+    },
+  });
+
+  assert.deepEqual(result.changedParticipant, {
+    userId: "user-1",
+    nickname: "Alpha",
+    role: "PARTICIPANT",
+    membershipStatus: "JOINED",
+  });
+});
+
+test("buildRoomWaitingState detects nickname and role changes as participant updates", () => {
+  const previousState = {
+    currentRoom: createRoom(),
+    participants: [
+      {
+        userId: "user-1",
+        nickname: "Old nickname",
+        role: "PARTICIPANT",
+        membershipStatus: "JOINED",
+      },
+    ],
+    changedParticipant: null,
+    gameState: {
+      status: "WAITING",
+      difficulty: "NORMAL",
+      timeLimitSeconds: 30,
+      maxStrikeCount: 3,
+      minParticipants: 2,
+      maxParticipants: 4,
+    },
+    missionState: null,
+  };
+
+  const result = buildRoomWaitingState({
+    currentRoom: createRoom(),
+    participants: [
+      createParticipant({
+        userId: "user-1",
+        nickname: "New nickname",
+        role: "OWNER",
+        membershipStatus: "JOINED",
+      }),
+    ],
+    previousState,
+    currentUser: {
+      userId: "user-2",
+      nickname: "Viewer",
+    },
+  });
+
+  assert.deepEqual(result.changedParticipant, {
+    userId: "user-1",
+    nickname: "New nickname",
+    role: "OWNER",
+    membershipStatus: "JOINED",
+  });
+});
+
+test("buildRoomWaitingState keeps previous gameplay snapshot when room metadata is unchanged", () => {
+  const previousGameState = {
+    status: "WAITING",
+    difficulty: "NORMAL",
+    timeLimitSeconds: 30,
+    maxStrikeCount: 3,
+    minParticipants: 2,
+    maxParticipants: 4,
+    customServerField: "preserved",
+  };
+  const previousMissionState = {
+    missionId: "mission-preserved",
+    title: "Preserved mission",
+  };
+
+  const result = buildRoomWaitingState({
+    currentRoom: createRoom(),
+    participants: [createParticipant()],
+    previousState: {
+      currentRoom: createRoom(),
+      participants: [
+        {
+          userId: "user-1",
+          nickname: "?꾪븯",
+          role: "PARTICIPANT",
+          membershipStatus: "JOINED",
+        },
+      ],
+      changedParticipant: null,
+      gameState: previousGameState,
+      missionState: previousMissionState,
+    },
+    currentUser: {
+      userId: "user-1",
+      nickname: "?꾪븯",
+    },
+  });
+
+  assert.equal(result.gameState, previousGameState);
+  assert.equal(result.missionState, previousMissionState);
+});
+
+test("buildRoomWaitingState rebuilds game metadata when difficulty or limits change", () => {
+  const previousState = {
+    currentRoom: createRoom({
+      difficulty: "NORMAL",
+      timeLimitSeconds: 30,
+      maxStrikeCount: 3,
+      minParticipants: 2,
+      maxParticipants: 4,
+    }),
+    participants: [],
+    changedParticipant: null,
+    gameState: {
+      status: "WAITING",
+      difficulty: "NORMAL",
+      timeLimitSeconds: 30,
+      maxStrikeCount: 3,
+      minParticipants: 2,
+      maxParticipants: 4,
+      customServerField: "should drop",
+    },
+    missionState: { missionId: "mission-old" },
+  };
+
+  const result = buildRoomWaitingState({
+    currentRoom: createRoom({
+      difficulty: "HARD",
+      timeLimitSeconds: 45,
+      maxStrikeCount: 5,
+      minParticipants: 3,
+      maxParticipants: 6,
+    }),
+    participants: [],
+    previousState,
+    currentUser: {
+      userId: "owner-1",
+      nickname: "Owner",
+    },
+  });
+
+  assert.deepEqual(result.gameState, {
+    status: "WAITING",
+    difficulty: "HARD",
+    timeLimitSeconds: 45,
+    maxStrikeCount: 5,
+    minParticipants: 3,
+    maxParticipants: 6,
+  });
+  assert.deepEqual(result.missionState, { missionId: "mission-old" });
+});
+
+test("buildRoomWaitingState keeps room participant count when all reflected participants are non-joined", () => {
+  const result = buildRoomWaitingState({
+    currentRoom: createRoom({
+      joinedParticipantCount: 2,
+    }),
+    participants: [
+      createParticipant({
+        userId: "user-1",
+        membershipStatus: "LEFT",
+      }),
+      createParticipant({
+        userId: "user-2",
+        membershipStatus: "DENIED",
+      }),
+    ],
+    currentUser: {
+      userId: "owner-1",
+      nickname: "Owner",
+    },
+  });
+
+  assert.equal(result.currentRoom.joinedParticipantCount, 2);
+  assert.deepEqual(
+    result.participants.map((participant) => participant.membershipStatus),
+    ["LEFT", "DENIED"],
+  );
+});
+
+test("buildRoomWaitingState applies realtime mission snapshot over previous mission state", () => {
+  const result = buildRoomWaitingState({
+    currentRoom: createRoom({
+      status: "WAITING",
+      joinedParticipantCount: 1,
+    }),
+    participants: [createParticipant()],
+    previousState: {
+      currentRoom: createRoom(),
+      participants: [],
+      changedParticipant: null,
+      gameState: {
+        status: "WAITING",
+      },
+      missionState: {
+        missionId: "mission-old",
+      },
+    },
+    currentUser: {
+      userId: "user-1",
+      nickname: "?꾪븯",
+    },
+    realtimeSnapshot: {
+      gameState: {
+        status: "IN_PROGRESS",
+        difficulty: "HARD",
+        timeLimitSeconds: 60,
+        maxStrikeCount: 5,
+      },
+      missionState: {
+        missionId: "mission-new",
+        title: "Realtime mission",
+      },
+    },
+  });
+
+  assert.equal(result.gameState.status, "IN_PROGRESS");
+  assert.equal(result.currentRoom.status, "IN_PROGRESS");
+  assert.equal(result.currentRoom.difficulty, "HARD");
+  assert.equal(result.missionState.missionId, "mission-new");
+});
+
+test("getWaitingRoomStartButtonState keeps owner start disabled below minimum participants", () => {
+  const result = getWaitingRoomStartButtonState(
+    createRoom({
+      myRole: "OWNER",
+      joinedParticipantCount: 1,
+      minParticipants: 3,
+      status: "WAITING",
+    }),
+  );
+
+  assert.deepEqual(result, {
+    canShowStartButton: true,
+    canClickStartButton: false,
+  });
+});
+
+test("getWaitingRoomStartButtonState allows owner start exactly at the participant minimum", () => {
+  const result = getWaitingRoomStartButtonState(
+    createRoom({
+      myRole: "OWNER",
+      joinedParticipantCount: 3,
+      minParticipants: 3,
+      status: "WAITING",
+    }),
+  );
+
+  assert.deepEqual(result, {
+    canShowStartButton: true,
+    canClickStartButton: true,
+  });
+});
+
+test("getWaitingRoomStartButtonState hides start when owner already left the room", () => {
+  const result = getWaitingRoomStartButtonState(
+    createRoom({
+      myRole: "OWNER",
+      myMembershipStatus: "LEFT",
+      joinedParticipantCount: 4,
+      minParticipants: 2,
+      status: "WAITING",
+    }),
+  );
+
+  assert.deepEqual(result, {
+    canShowStartButton: true,
+    canClickStartButton: true,
+  });
+});
+
+test("status and role label helpers return stable non-empty copy for all reflected values", () => {
+  for (const status of ["INVITED", "JOINED", "LEFT", "DENIED", "UNKNOWN"]) {
+    const label = getMembershipStatusLabel(status);
+
+    assert.equal(typeof label, "string");
+    assert.ok(label.length > 0);
+  }
+
+  for (const role of ["OWNER", "PARTICIPANT", "UNKNOWN"]) {
+    const label = getParticipantRoleLabel(role);
+
+    assert.equal(typeof label, "string");
+    assert.ok(label.length > 0);
+  }
+});
+
+test("buildParticipantChangeSummary includes the participant nickname for every membership transition", () => {
+  for (const membershipStatus of ["INVITED", "JOINED", "LEFT", "DENIED", "UNKNOWN"]) {
+    const summary = buildParticipantChangeSummary({
+      userId: "user-1",
+      nickname: "Alpha",
+      role: "PARTICIPANT",
+      membershipStatus,
+    });
+
+    assert.equal(typeof summary, "string");
+    assert.ok(summary.includes("Alpha"));
+  }
+});
+
+test("buildParticipantChangeSummary returns null when there is no changed participant", () => {
+  assert.equal(buildParticipantChangeSummary(null), null);
+});
+
+test("isSameRoomWaitingState detects current room, participant, and mission changes", () => {
+  const base = buildRoomWaitingState({
+    currentRoom: createRoom(),
+    participants: [createParticipant()],
+    currentUser: {
+      userId: "user-1",
+      nickname: "?꾪븯",
+    },
+  });
+
+  const changedRoom = {
+    ...base,
+    currentRoom: {
+      ...base.currentRoom,
+      joinedParticipantCount: base.currentRoom.joinedParticipantCount + 1,
+    },
+  };
+  const changedParticipant = {
+    ...base,
+    participants: [
+      {
+        ...base.participants[0],
+        nickname: "Changed",
+      },
+    ],
+  };
+  const changedGameState = {
+    ...base,
+    gameState: {
+      ...base.gameState,
+      difficulty: "HARD",
+    },
+  };
+  const changedMissionState = {
+    ...base,
+    missionState: {
+      missionId: "mission-1",
+    },
+  };
+
+  assert.equal(isSameRoomWaitingState(base, changedRoom), false);
+  assert.equal(isSameRoomWaitingState(base, changedParticipant), false);
+  assert.equal(isSameRoomWaitingState(base, changedGameState), false);
+  assert.equal(isSameRoomWaitingState(base, changedMissionState), false);
+  assert.equal(isSameRoomWaitingState(base, null), false);
+  assert.equal(isSameRoomWaitingState(null, null), true);
+});
+
+test("shouldPreserveCurrentRoomOnEmptyHttpHydration rejects inactive or mismatched room state", () => {
+  assert.equal(
+    shouldPreserveCurrentRoomOnEmptyHttpHydration({
+      room: { currentRoom: createRoom({ gameRoomId: "room-1" }) },
+      realtime: { activeRoomId: null, participants: [] },
+      game: {
+        gameState: { status: "IN_PROGRESS" },
+        missionState: null,
+      },
+    }),
+    false,
+  );
+  assert.equal(
+    shouldPreserveCurrentRoomOnEmptyHttpHydration({
+      room: { currentRoom: createRoom({ gameRoomId: "room-1" }) },
+      realtime: { activeRoomId: "room-2", participants: [] },
+      game: {
+        gameState: { status: "IN_PROGRESS" },
+        missionState: null,
+      },
+    }),
+    false,
+  );
+  assert.equal(
+    shouldPreserveCurrentRoomOnEmptyHttpHydration({
+      room: { currentRoom: null },
+      realtime: { activeRoomId: "room-1", participants: [] },
+      game: {
+        gameState: { status: "IN_PROGRESS" },
+        missionState: null,
+      },
+    }),
+    false,
+  );
+});
+
+test("buildRoomWaitingState does not report a changed participant when participant snapshots are equal", () => {
+  const participant = {
+    userId: "user-1",
+    nickname: "Alpha",
+    role: "PARTICIPANT",
+    membershipStatus: "JOINED",
+  };
+
+  const result = buildRoomWaitingState({
+    currentRoom: createRoom(),
+    participants: [
+      createParticipant({
+        userId: participant.userId,
+        nickname: participant.nickname,
+        role: participant.role,
+        membershipStatus: participant.membershipStatus,
+      }),
+    ],
+    previousState: {
+      currentRoom: createRoom(),
+      participants: [participant],
+      changedParticipant: null,
+      gameState: {
+        status: "WAITING",
+        difficulty: "NORMAL",
+        timeLimitSeconds: 30,
+        maxStrikeCount: 3,
+        minParticipants: 2,
+        maxParticipants: 4,
+      },
+      missionState: null,
+    },
+    currentUser: {
+      userId: "user-1",
+      nickname: "Alpha",
+    },
+  });
+
+  assert.equal(result.changedParticipant, null);
+});
+
+test("buildRoomWaitingState reports the first changed participant when current user is unchanged", () => {
+  const result = buildRoomWaitingState({
+    currentRoom: createRoom({
+      joinedParticipantCount: 3,
+    }),
+    participants: [
+      createParticipant({
+        userId: "user-1",
+        nickname: "Alpha",
+        role: "PARTICIPANT",
+        membershipStatus: "JOINED",
+      }),
+      createParticipant({
+        userId: "user-2",
+        nickname: "Beta",
+        role: "PARTICIPANT",
+        membershipStatus: "JOINED",
+      }),
+      createParticipant({
+        userId: "user-3",
+        nickname: "Gamma",
+        role: "PARTICIPANT",
+        membershipStatus: "JOINED",
+      }),
+    ],
+    previousState: {
+      currentRoom: createRoom({
+        joinedParticipantCount: 1,
+      }),
+      participants: [
+        {
+          userId: "user-1",
+          nickname: "Alpha",
+          role: "PARTICIPANT",
+          membershipStatus: "JOINED",
+        },
+      ],
+      changedParticipant: null,
+      gameState: {
+        status: "WAITING",
+        difficulty: "NORMAL",
+        timeLimitSeconds: 30,
+        maxStrikeCount: 3,
+        minParticipants: 2,
+        maxParticipants: 4,
+      },
+      missionState: null,
+    },
+    currentUser: {
+      userId: "user-1",
+      nickname: "Alpha",
+    },
+  });
+
+  assert.deepEqual(result.changedParticipant, {
+    userId: "user-2",
+    nickname: "Beta",
+    role: "PARTICIPANT",
+    membershipStatus: "JOINED",
+  });
+});
+
+test("buildRoomWaitingState converts participant API rows without leaking API-only fields", () => {
+  const result = buildRoomWaitingState({
+    currentRoom: createRoom(),
+    participants: [
+      createParticipant({
+        participantId: "participant-api-only",
+        gameRoomId: "room-1",
+        roomStatus: "WAITING",
+        createdAt: "2026-05-25T10:06:00Z",
+      }),
+    ],
+    currentUser: {
+      userId: "user-1",
+      nickname: "?꾪븯",
+    },
+  });
+
+  assert.deepEqual(Object.keys(result.participants[0]).sort(), [
+    "membershipStatus",
+    "nickname",
+    "role",
+    "userId",
+  ]);
+});
+
+test("resolveWaitingRoomCurrentRoom keeps joined count from current room when realtime participants are empty", () => {
+  const resolved = resolveWaitingRoomCurrentRoom({
+    httpRoom: createRoom({
+      joinedParticipantCount: 4,
+    }),
+    storeCurrentRoom: null,
+    realtimeSnapshot: {
+      gameState: {
+        status: "IN_PROGRESS",
+        difficulty: "NORMAL",
+        timeLimitSeconds: 30,
+        maxStrikeCount: 3,
+      },
+      missionState: null,
+    },
+    participants: [],
+  });
+
+  assert.equal(resolved.status, "IN_PROGRESS");
+  assert.equal(resolved.joinedParticipantCount, 4);
+});
+
+test("isSameRoomWaitingState detects changedParticipant differences", () => {
+  const base = buildRoomWaitingState({
+    currentRoom: createRoom(),
+    participants: [createParticipant()],
+    currentUser: {
+      userId: "user-1",
+      nickname: "?꾪븯",
+    },
+  });
+  const withChangedParticipant = {
+    ...base,
+    changedParticipant: {
+      userId: "user-2",
+      nickname: "Beta",
+      role: "PARTICIPANT",
+      membershipStatus: "JOINED",
+    },
+  };
+
+  assert.equal(isSameRoomWaitingState(base, withChangedParticipant), false);
+});
