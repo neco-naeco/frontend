@@ -1,5 +1,9 @@
 import type { EditorClientState } from "../../shared/types/clientState";
-import type { CodeSnapshot, CodeUpdatedEvent } from "../../shared/types/domain";
+import type {
+  CodeSnapshot,
+  CodeUpdatedEvent,
+  MissionState,
+} from "../../shared/types/domain";
 import { applyAuthoritativeEditorFiles } from "./editorTurnBaseline";
 
 export function isSameClientCodeUpdatedEcho(
@@ -34,6 +38,21 @@ export function extractAuthoritativeFilesFromCodeSnapshot(
   );
 }
 
+export function extractAuthoritativeFilesFromMissionState(
+  missionState: Partial<MissionState> | null | undefined,
+) {
+  const files = missionState?.projectStructure?.files ?? [];
+
+  return Object.fromEntries(
+    files
+      .filter(
+        (file): file is typeof file & { content: string } =>
+          typeof file.content === "string",
+      )
+      .map((file) => [file.filePath, file.content]),
+  );
+}
+
 export function applyAuthoritativeFilesToEditor(
   editor: EditorClientState,
   incoming: Record<string, string>,
@@ -44,4 +63,17 @@ export function applyAuthoritativeFilesToEditor(
   }
 
   return applyAuthoritativeEditorFiles(editor, incoming, activeTurnId);
+}
+
+/** Keeps the sender's accepted submission as the local authoritative handoff snapshot. */
+export function promoteSubmittedSnapshotToAuthoritative(
+  editor: EditorClientState,
+  snapshot: CodeSnapshot,
+  activeTurnId: string | undefined | null,
+) {
+  return applyAuthoritativeFilesToEditor(
+    editor,
+    extractAuthoritativeFilesFromCodeSnapshot(snapshot),
+    activeTurnId,
+  );
 }

@@ -1,6 +1,7 @@
 import {
   applyAuthoritativeFilesToEditor,
   extractAuthoritativeFilesFromCodeUpdated,
+  extractAuthoritativeFilesFromMissionState,
   isSameClientCodeUpdatedEcho,
 } from "../editor/authoritativeEditorSync";
 import { applyCodeDeltaToEditor } from "../editor/editorCodeDeltaSync";
@@ -301,6 +302,16 @@ export function applyGameStateUpdated(
   const mergedMissionState = mergeMissionState(state, event.missionState);
   const previousTurnId = state.game.gameState?.turnState?.turnId;
   const nextTurnId = mergedGameState.turnState?.turnId;
+  const isTurnChanging = Boolean(
+    nextTurnId && nextTurnId !== previousTurnId,
+  );
+  const editorWithSnapshot = isTurnChanging
+    ? applyAuthoritativeFilesToEditor(
+        state.editor,
+        extractAuthoritativeFilesFromMissionState(event.missionState),
+        previousTurnId,
+      )
+    : state.editor;
 
   let nextState: RootClientState = {
     ...state,
@@ -310,9 +321,9 @@ export function applyGameStateUpdated(
       missionState: mergedMissionState,
     },
     editor:
-      nextTurnId && nextTurnId !== previousTurnId
-        ? onEditorTurnIdChanged(state.editor, nextTurnId)
-        : state.editor,
+      isTurnChanging
+        ? onEditorTurnIdChanged(editorWithSnapshot, nextTurnId)
+        : editorWithSnapshot,
   };
 
   if (state.room.currentRoom?.gameRoomId !== event.gameRoomId) {
@@ -526,10 +537,16 @@ export function applyTurnChanged(
       }
     : null;
 
+  const editorWithSnapshot = applyAuthoritativeFilesToEditor(
+    state.editor,
+    extractAuthoritativeFilesFromMissionState(event.missionState),
+    previousTurnId,
+  );
+
   const nextEditor =
     nextTurnId && nextTurnId !== previousTurnId
-      ? onEditorTurnIdChanged(state.editor, nextTurnId)
-      : state.editor;
+      ? onEditorTurnIdChanged(editorWithSnapshot, nextTurnId)
+      : editorWithSnapshot;
 
   let nextState: RootClientState = {
     ...state,

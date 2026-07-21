@@ -10,6 +10,10 @@ import type {
   TurnEvaluatedEvent,
 } from "../../shared/types/domain";
 import type { RealtimeSocket } from "../../shared/socket/socketClient";
+import {
+  clearMissionResultSession,
+  saveMissionResultSession,
+} from "../game-result/missionResultModel";
 import { navigateToGameplay, navigateToResult } from "./realtimeNavigation";
 import {
   applyCodeUpdated,
@@ -48,6 +52,8 @@ export function bindRoomRealtimeEvents(
     if (!event?.gameRoomId) {
       return;
     }
+
+    clearMissionResultSession(event.gameRoomId);
 
     const { state: nextState, navigationTarget } = applyGameStarted(
       store.getState(),
@@ -101,6 +107,8 @@ export function bindRoomRealtimeEvents(
     if (!event?.gameRoomId || !event.missionResult) {
       return;
     }
+
+    saveMissionResultSession(event.gameRoomId, event.missionResult);
 
     const { state: nextState, navigationTarget } = applyMissionResult(
       store.getState(),

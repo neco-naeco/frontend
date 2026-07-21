@@ -192,6 +192,11 @@ export type CodeUpdatedEvent = {
 - show the completed turn result
 - update feedback, strikes, and detected issues
 - treat `SUBMITTED` and `TIMEOUT` evaluations with the same display flow
+- on `FAILED`, decrement one team strike through the authoritative backend result
+- keep the failed submission only as an attempt record; it must not become the next editor baseline
+- restore every participant to the latest `PASSED` snapshot, or the mission starter files when no step has passed yet
+- keep the current mission step active so the next player retries the same step
+- treat evaluator `ERROR` separately from `FAILED`; do not consume a strike or advance the turn
 
 `turn-changed`
 

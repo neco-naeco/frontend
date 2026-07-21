@@ -8,6 +8,7 @@ import {
 } from "../../src/features/realtime/realtimeEventReducers.ts";
 import { bindRoomRealtimeEvents } from "../../src/features/realtime/roomRealtimeEvents.ts";
 import { setRealtimeNavigateHandler } from "../../src/features/realtime/realtimeNavigation.ts";
+import { promoteSubmittedSnapshotToAuthoritative } from "../../src/features/editor/authoritativeEditorSync.ts";
 import { canEditGameplay } from "../../src/pages/RoomPage/roomPageViewModel.ts";
 
 function seedGameplayStore(store) {
@@ -200,6 +201,143 @@ test("applyTurnChanged updates turn state, mission state, and resets evaluation 
   assert.equal(next.editor.turnBaselineTurnId, "turn-2");
   assert.deepEqual(next.editor.files, { "main.py": "clean" });
   assert.deepEqual(next.editor.markers, []);
+});
+
+test("applyTurnChanged converges submitter and observer editors to the submitted snapshot", () => {
+  const submittedCode = "def main():\n    return 42\n";
+  const createClientState = (authoritativeCode) => {
+    const store = createAppStore();
+    seedGameplayStore(store);
+    store.setState((state) => ({
+      ...state,
+      editor: {
+        ...state.editor,
+        files: { "main.py": submittedCode },
+        authoritativeFiles: { "main.py": authoritativeCode },
+        turnBaselineFiles: { "main.py": "clean" },
+      },
+    }));
+    return store.getState();
+  };
+  const event = {
+    gameRoomId: "room-1",
+    missionState: {
+      missionId: "mission-1",
+      projectStructure: {
+        rootPath: "/workspace",
+        entryFilePath: "main.py",
+        files: [
+          {
+            filePath: "main.py",
+            language: "python",
+            readonly: false,
+            content: submittedCode,
+          },
+        ],
+      },
+    },
+    turnState: {
+      turnId: "turn-2",
+      turnNumber: 2,
+      currentPlayerId: "user-2",
+      startedAt: "2026-05-25T10:11:05Z",
+      deadlineAt: "2026-05-25T10:11:35Z",
+      timeLimitSeconds: 30,
+      remainingTimeSeconds: 30,
+      status: "IN_PROGRESS",
+    },
+    nextPlayerId: "user-2",
+    turnSnapshotId: "snapshot-1",
+  };
+
+  const submitter = applyTurnChanged(createClientState("clean"), event);
+  const observer = applyTurnChanged(createClientState(submittedCode), event);
+
+  assert.deepEqual(submitter.editor.files, observer.editor.files);
+  assert.deepEqual(submitter.editor.authoritativeFiles, observer.editor.authoritativeFiles);
+  assert.deepEqual(submitter.editor.turnBaselineFiles, observer.editor.turnBaselineFiles);
+  assert.equal(submitter.editor.files["main.py"], submittedCode);
+});
+
+test("a submitter keeps submitted code when its turn returns without an inline snapshot", () => {
+  const submittedCode = "def main():\n    print(42)\n";
+  const store = createAppStore();
+  seedGameplayStore(store);
+  store.setState((state) => ({
+    ...state,
+    editor: {
+      ...state.editor,
+      files: { "main.py": submittedCode },
+      authoritativeFiles: { "main.py": "starter" },
+      turnBaselineFiles: { "main.py": "starter" },
+    },
+  }));
+
+  const submitted = store.getState();
+  const afterSubmit = {
+    ...submitted,
+    editor: promoteSubmittedSnapshotToAuthoritative(
+      submitted.editor,
+      { files: [{ filePath: "main.py", content: submittedCode }] },
+      "turn-1",
+    ),
+  };
+  const turnEvent = (turnId, userId, occurredAt) => ({
+    gameRoomId: "room-1",
+    currentTurnId: turnId,
+    currentTurnUserId: userId,
+    occurredAt,
+  });
+  const afterNextPlayer = applyTurnChanged(
+    afterSubmit,
+    turnEvent("turn-2", "user-2", "2026-07-21T17:00:00+09:00"),
+  );
+  const afterTurnReturns = applyTurnChanged(
+    afterNextPlayer,
+    turnEvent("turn-3", "user-1", "2026-07-21T17:01:00+09:00"),
+  );
+
+  assert.equal(afterTurnReturns.editor.files["main.py"], submittedCode);
+});
+
+test("a failed turn rolls every client back to the last accepted code", () => {
+  const acceptedCode = "print('accepted')\n";
+  const failedCode = "not valid python";
+  const createFailedClient = () => {
+    const store = createAppStore();
+    seedGameplayStore(store);
+    store.setState((state) => ({
+      ...state,
+      editor: {
+        ...state.editor,
+        files: { "main.py": failedCode },
+        authoritativeFiles: { "main.py": failedCode },
+      },
+    }));
+    return store.getState();
+  };
+  const event = {
+    gameRoomId: "room-1",
+    missionState: {
+      missionId: "mission-1",
+      projectStructure: {
+        rootPath: "/workspace",
+        entryFilePath: "main.py",
+        files: [{ filePath: "main.py", content: acceptedCode }],
+      },
+    },
+    currentTurnId: "turn-2",
+    currentTurnUserId: "user-2",
+    occurredAt: "2026-07-21T17:00:00+09:00",
+  };
+
+  const submitter = applyTurnChanged(createFailedClient(), event);
+  const participant = applyTurnChanged(createFailedClient(), event);
+
+  assert.equal(submitter.editor.files["main.py"], acceptedCode);
+  assert.equal(participant.editor.files["main.py"], acceptedCode);
+  assert.equal(submitter.editor.authoritativeFiles["main.py"], acceptedCode);
+  assert.equal(participant.editor.authoritativeFiles["main.py"], acceptedCode);
 });
 
 test("applyTurnChanged reconstructs editable next-turn state from backend-first payloads", () => {
