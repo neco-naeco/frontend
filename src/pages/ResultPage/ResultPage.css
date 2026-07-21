@@ -1,25 +1,211 @@
-.result-page__summary dl {
+.result-page {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background: #f5f4ef;
+}
+
+.result-page__game-preview {
+  position: absolute;
+  inset: 0;
   display: grid;
-  gap: 0.75rem;
-  margin: 1rem 0;
+  grid-template-columns: minmax(170px, 20%) minmax(360px, 1fr) minmax(220px, 30%);
+  grid-template-rows: 76px 1fr;
+  gap: 16px;
+  padding: 20px;
+  background: #fbfaf6;
 }
 
-.result-page__summary dt {
-  font-weight: 600;
+.result-page__game-preview > div {
+  border: 1px solid #dce2d8;
+  border-radius: 10px;
+  background: #fff;
 }
 
-.result-page__issue {
-  margin: 1rem 0;
-  color: #b42318;
+.result-page__preview-header {
+  grid-column: 1 / -1;
 }
 
-.result-page__actions {
+.result-page__preview-sidebar {
+  grid-column: 1;
+}
+
+.result-page__preview-editor {
+  grid-column: 2;
+}
+
+.result-page__preview-chat {
+  grid-column: 3;
+}
+
+.result-page__overlay {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(22, 24, 22, 0.48);
+}
+
+.result-dialog {
+  width: min(580px, 100%);
+  min-height: 480px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 52px 56px 42px;
+  border-radius: 16px;
+  background: #fffefb;
+  box-shadow: 0 24px 64px rgba(17, 23, 16, 0.24);
+  text-align: center;
+}
+
+.result-dialog--success {
+  min-height: 566px;
+  padding-top: 44px;
+}
+
+.result-dialog__eyebrow {
+  margin: 0;
+  color: #171917;
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1.3;
+}
+
+.result-dialog h1 {
+  margin: 10px 0 16px;
+  color: #4d8938;
+  font-size: clamp(32px, 4vw, 42px);
+  line-height: 1.2;
+}
+
+.result-dialog--failure h1 {
+  color: #cf4638;
+}
+
+.result-dialog__characters {
+  width: min(310px, 80%);
+  height: 138px;
+  object-fit: contain;
+}
+
+.result-dialog__message {
+  margin: 18px 0 0;
+  color: #747a72;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+.result-dialog__execution {
+  width: 100%;
+  margin-top: 16px;
+  padding-top: 18px;
+  border-top: 1px solid #d9ddd5;
+  text-align: left;
+}
+
+.result-dialog__execution h2 {
+  margin: 0 0 14px;
+  color: #191b19;
+  font-size: 15px;
+}
+
+.result-dialog__execution output {
+  min-height: 52px;
+  display: grid;
+  place-items: center;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: #faf7f3;
+  color: #4e8a3c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.result-dialog > button {
+  width: 170px;
+  min-height: 50px;
+  margin-top: auto;
+  border: 0;
+  border-radius: 8px;
+  background: #4e8a3c;
+  color: #fff;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.result-dialog--failure > button {
+  background: #cf4638;
+}
+
+.result-dialog > button:hover {
+  filter: brightness(0.94);
+}
+
+.result-dialog > button:focus-visible,
+.result-page__fallback-actions button:focus-visible {
+  outline: 3px solid #1d5f9c;
+  outline-offset: 3px;
+}
+
+.result-page__fallback-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
-  margin-top: 1.5rem;
+  gap: 12px;
+  margin-top: 24px;
 }
 
-.result-page__actions button {
+.result-page__fallback-actions button {
+  min-height: 42px;
+  padding: 0 18px;
   cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .result-page__overlay {
+    padding: 16px;
+  }
+
+  .result-dialog,
+  .result-dialog--success {
+    min-height: min(520px, calc(100vh - 32px));
+    padding: 36px 24px 28px;
+    border-radius: 14px;
+  }
+
+  .result-dialog__eyebrow {
+    font-size: 20px;
+  }
+
+  .result-dialog h1 {
+    margin-top: 8px;
+    font-size: 32px;
+  }
+
+  .result-dialog__characters {
+    width: min(270px, 88%);
+    height: 126px;
+  }
+}
+
+@media (max-height: 620px) and (min-width: 641px) {
+  .result-dialog,
+  .result-dialog--success {
+    min-height: 0;
+    padding-top: 28px;
+    padding-bottom: 28px;
+  }
+
+  .result-dialog__characters {
+    height: 108px;
+  }
+
+  .result-dialog > button {
+    margin-top: 24px;
+  }
 }
