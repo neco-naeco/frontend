@@ -7,6 +7,7 @@ import {
   isRoomSessionUnavailable,
 } from "../../features/realtime/roomSocketLifecycle";
 import { applyEditorFileReset } from "../../features/editor/editorTurnBaseline";
+import { promoteSubmittedSnapshotToAuthoritative } from "../../features/editor/authoritativeEditorSync";
 import { useGameplayCodeSync } from "../../features/editor/useGameplayCodeSync";
 import { buildTurnCodeSnapshot } from "../../features/game-turn/buildTurnCodeSnapshot";
 import { submitTurn } from "../../features/game-turn/submitTurn";
@@ -432,6 +433,11 @@ export function RoomPage() {
         ...state.game,
         turnSubmissionPending: true,
       },
+      editor: promoteSubmittedSnapshotToAuthoritative(
+        state.editor,
+        codeSnapshot,
+        turnState.turnId,
+      ),
     }));
   };
 

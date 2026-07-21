@@ -422,13 +422,14 @@ export type MissionResult = {
   missionId: string;
   isMissionCleared: boolean;
   judgeStatus: string;
-  selectedInputs: unknown[][];
-  expectedOutputs: unknown[][];
-  actualOutputs: unknown[][];
+  selectedInputs?: unknown[];
+  expectedOutputs?: unknown[];
+  actualOutputs?: unknown[];
   strikeCount: number;
   remainingStrikeCount: number;
   feedbackMessage: string;
   detectedIssues: DetectedIssue[];
+  executionSummary?: TurnEvaluationResult["executionSummary"];
 };
 
 export type MissionResultEvent = {

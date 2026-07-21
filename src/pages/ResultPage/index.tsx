@@ -2,40 +2,29 @@ import { useNavigate, useParams } from "react-router-dom";
 import teamHappyImg from "../../assets/characters/team-happy.png";
 import teamSadImg from "../../assets/characters/team-sad.png";
 import { useAppStore } from "../../app/providers/ClientStateProvider";
-import { useRoomSocketLifecycle } from "../../features/realtime/useRoomSocketLifecycle";
 import { PageShell } from "../../shared/components/PageShell";
+import {
+  formatMissionExecutionResult,
+  loadMissionResultSession,
+} from "../../features/game-result/missionResultModel";
+import { RoomPage } from "../RoomPage";
 import "./ResultPage.css";
-
-function formatExecutionResult(actualOutputs: unknown[][]) {
-  const output = actualOutputs[actualOutputs.length - 1];
-
-  return output
-    ? `[${output.map((value) => JSON.stringify(value)).join(", ")}]`
-    : null;
-}
 
 export function ResultPage() {
   const navigate = useNavigate();
   const { gameRoomId } = useParams();
-  useRoomSocketLifecycle(gameRoomId);
 
-  const missionResult = useAppStore((state) => state.game.missionResult);
+  const realtimeMissionResult = useAppStore((state) => state.game.missionResult);
+  const missionResult =
+    realtimeMissionResult ?? loadMissionResultSession(gameRoomId);
 
   if (!missionResult) {
     return (
       <PageShell
         title="미션 결과"
-        description="실시간 미션 결과가 아직 도착하지 않았습니다. 게임 화면에서 플레이를 이어가거나 메인으로 돌아가세요."
+        description="종료된 게임의 결과를 불러올 수 없습니다. 메인으로 돌아가 새 게임을 시작해 주세요."
       >
         <div className="result-page__fallback-actions">
-          {gameRoomId ? (
-            <button
-              type="button"
-              onClick={() => navigate(`/rooms/${gameRoomId}/play`)}
-            >
-              게임 화면으로
-            </button>
-          ) : null}
           <button type="button" onClick={() => navigate("/main")}>
             메인으로
           </button>
@@ -45,17 +34,20 @@ export function ResultPage() {
   }
 
   const isSuccess = missionResult.isMissionCleared;
-  const executionResult = formatExecutionResult(missionResult.actualOutputs);
+  const executionResult = formatMissionExecutionResult(missionResult);
   const descriptionId = "mission-result-description";
   const titleId = "mission-result-title";
 
   return (
     <main className="result-page">
-      <div className="result-page__game-preview" aria-hidden="true">
-        <div className="result-page__preview-header" />
-        <div className="result-page__preview-sidebar" />
-        <div className="result-page__preview-editor" />
-        <div className="result-page__preview-chat" />
+      <div
+        className="result-page__game-background"
+        aria-hidden="true"
+        ref={(element) => {
+          element?.setAttribute("inert", "");
+        }}
+      >
+        <RoomPage />
       </div>
 
       <div className="result-page__overlay">

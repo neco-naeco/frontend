@@ -5,41 +5,16 @@
   background: #f5f4ef;
 }
 
-.result-page__game-preview {
+.result-page__game-background {
   position: absolute;
   inset: 0;
-  display: grid;
-  grid-template-columns: minmax(170px, 20%) minmax(360px, 1fr) minmax(220px, 30%);
-  grid-template-rows: 76px 1fr;
-  gap: 16px;
-  padding: 20px;
-  background: #fbfaf6;
-}
-
-.result-page__game-preview > div {
-  border: 1px solid #dce2d8;
-  border-radius: 10px;
-  background: #fff;
-}
-
-.result-page__preview-header {
-  grid-column: 1 / -1;
-}
-
-.result-page__preview-sidebar {
-  grid-column: 1;
-}
-
-.result-page__preview-editor {
-  grid-column: 2;
-}
-
-.result-page__preview-chat {
-  grid-column: 3;
+  overflow: hidden;
+  pointer-events: none;
 }
 
 .result-page__overlay {
-  position: relative;
+  position: fixed;
+  inset: 0;
   z-index: 1;
   min-height: 100vh;
   display: grid;
