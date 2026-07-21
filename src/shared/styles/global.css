@@ -745,6 +745,7 @@ select {
   position: relative;
   display: grid;
   gap: 10px;
+  width: 100%;
   min-width: 280px;
   padding: 24px 26px;
   border: 1px solid #e4e1d9;
@@ -898,6 +899,8 @@ select {
 .main-waiting-room {
   display: grid;
   gap: 14px;
+  width: 100%;
+  min-width: 0;
 }
 
 .main-waiting-room__change,
@@ -905,6 +908,7 @@ select {
 .main-waiting-room__start {
   display: grid;
   gap: 10px;
+  min-width: 0;
   padding: 16px 18px;
   border-radius: 16px;
   background: #fbfaf5;
