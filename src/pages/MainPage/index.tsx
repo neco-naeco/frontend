@@ -69,7 +69,7 @@ import {
 } from "./mockMode";
 import { notifyAuthLogout } from "../../shared/api/authStorage";
 
-const WAITING_ROOM_POLLING_INTERVAL_MS = 3000;
+const MAIN_PAGE_POLLING_INTERVAL_MS = 3000;
 
 function ChevronDownIcon() {
   return (
@@ -1187,6 +1187,7 @@ function MainScrollDebugState({ nickname }: { nickname: string }) {
 type WaitingRoomTransitionState = {
   source: "room-create" | "room-join";
   gameRoomId: string;
+  currentRoom: CurrentGameRoom;
   errorMessage: string | null;
 };
 
@@ -1197,6 +1198,34 @@ type InvitationActionState = {
   retryable: boolean;
   submittedMessage: string;
 };
+
+function buildWaitingRoomTransitionCurrentRoom({
+  source,
+  gameRoomId,
+  currentUserId,
+}: {
+  source: "room-create" | "room-join";
+  gameRoomId: string;
+  currentUserId: string;
+}): CurrentGameRoom {
+  const now = new Date().toISOString();
+
+  return {
+    gameRoomId,
+    status: "WAITING",
+    difficulty: "NORMAL",
+    ownerUserId: source === "room-create" ? currentUserId : "",
+    myRole: source === "room-create" ? "OWNER" : "PARTICIPANT",
+    myMembershipStatus: "JOINED",
+    joinedParticipantCount: 1,
+    timeLimitSeconds: 30,
+    maxStrikeCount: 3,
+    minParticipants: 2,
+    maxParticipants: 4,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
 
 export function MainPage() {
   const store = useAppStoreApi();
@@ -1237,6 +1266,8 @@ export function MainPage() {
   const currentRoomQuery = useQuery({
     queryKey: ["main-page-current-room", effectiveUser?.userId, mockScenario],
     enabled: Boolean(effectiveUser?.userId) && !isScrollDebugMode,
+    refetchInterval:
+      effectiveUser?.userId && !isScrollDebugMode ? MAIN_PAGE_POLLING_INTERVAL_MS : false,
     queryFn: () =>
       loadCurrentRoomState({
         userId: effectiveUser?.userId ?? "",
@@ -1253,6 +1284,8 @@ export function MainPage() {
   const invitationQuery = useQuery({
     queryKey: ["main-page-invitations", effectiveUser?.userId, mockScenario],
     enabled: Boolean(effectiveUser?.userId) && !isScrollDebugMode,
+    refetchInterval:
+      effectiveUser?.userId && !isScrollDebugMode ? MAIN_PAGE_POLLING_INTERVAL_MS : false,
     queryFn: () =>
       loadInvitations({
         userId: effectiveUser?.userId ?? "",
@@ -1270,14 +1303,16 @@ export function MainPage() {
       ...state,
       room: {
         ...state.room,
-        currentRoom: resolveCurrentRoomAfterHttpHydration(
-          currentRoomQuery.data.currentRoom,
-          state,
-        ),
+        currentRoom:
+          resolveCurrentRoomAfterHttpHydration(
+            currentRoomQuery.data.currentRoom,
+            state,
+          ) ??
+          (waitingRoomTransition ? state.room.currentRoom ?? waitingRoomTransition.currentRoom : null),
         duplicateRoomWarning: currentRoomQuery.data.duplicateRoomWarning,
       },
     }));
-  }, [currentRoomQuery.data, store]);
+  }, [currentRoomQuery.data, store, waitingRoomTransition]);
 
   useEffect(() => {
     if (invitationQuery.data === undefined) {
@@ -1314,9 +1349,11 @@ export function MainPage() {
         gameState: storedGameState,
         missionState: storedMissionState,
         participants: storedRealtimeParticipants,
+        invitations: mainPageView.invitations,
       }),
     [
       mainPageView.currentRoomState.currentRoom,
+      mainPageView.invitations,
       storedCurrentRoom,
       storedActiveRoomId,
       storedGameState,
@@ -1338,7 +1375,9 @@ export function MainPage() {
       (invitation) => !hiddenInvitationIds.includes(invitation.participantId),
     ),
   });
-  useRoomSocketLifecycle(waitingRoomCurrentRoom?.gameRoomId);
+  const waitingRoomSocketGameRoomId =
+    waitingRoomCurrentRoom?.gameRoomId ?? waitingRoomTransition?.gameRoomId;
+  useRoomSocketLifecycle(waitingRoomSocketGameRoomId);
   const aiChatSessionQuery = useQuery({
     queryKey: ["main-page-ai-chat-sessions", effectiveUser?.userId, mockScenario],
     enabled: Boolean(effectiveUser?.userId) && !isScrollDebugMode,
@@ -1416,16 +1455,16 @@ export function MainPage() {
     gameRoomId: waitingRoomCurrentRoom?.gameRoomId ?? null,
   });
   const roomWaitingParticipantsQuery = useQuery({
-    queryKey: ["main-page-room-waiting", waitingRoomCurrentRoom?.gameRoomId, mockScenario],
-    enabled: Boolean(waitingRoomCurrentRoom?.gameRoomId) && !isScrollDebugMode,
+    queryKey: ["main-page-room-waiting", waitingRoomSocketGameRoomId, mockScenario],
+    enabled: Boolean(waitingRoomSocketGameRoomId) && !isScrollDebugMode,
     refetchInterval:
-      waitingRoomCurrentRoom?.gameRoomId && !isScrollDebugMode
-        ? WAITING_ROOM_POLLING_INTERVAL_MS
+      waitingRoomSocketGameRoomId && !isScrollDebugMode
+        ? MAIN_PAGE_POLLING_INTERVAL_MS
         : false,
     queryFn: () =>
       (
         mainPageMockApi?.getRoomParticipants ?? roomWaitingApi.getParticipants
-      )(waitingRoomCurrentRoom?.gameRoomId ?? ""),
+      )(waitingRoomSocketGameRoomId ?? ""),
   });
   const waitingRoomErrorMessage =
     waitingRoomCurrentRoom &&
@@ -1632,9 +1671,22 @@ export function MainPage() {
         response.commandResult?.status === "SUCCESS" &&
         response.commandResult.gameRoomId
       ) {
+        const transitionCurrentRoom = buildWaitingRoomTransitionCurrentRoom({
+          source: response.requestType === "ROOM_JOIN" ? "room-join" : "room-create",
+          gameRoomId: response.commandResult.gameRoomId,
+          currentUserId: effectiveUser?.userId ?? "",
+        });
+        store.setState((state) => ({
+          ...state,
+          room: {
+            ...state.room,
+            currentRoom: state.room.currentRoom ?? transitionCurrentRoom,
+          },
+        }));
         setWaitingRoomTransition({
           source: response.requestType === "ROOM_JOIN" ? "room-join" : "room-create",
           gameRoomId: response.commandResult.gameRoomId,
+          currentRoom: transitionCurrentRoom,
           errorMessage: null,
         });
       }
@@ -1655,6 +1707,13 @@ export function MainPage() {
         setWaitingRoomTransition({
           source: response.requestType === "ROOM_JOIN" ? "room-join" : "room-create",
           gameRoomId: response.commandResult.gameRoomId,
+          currentRoom:
+            waitingRoomTransition?.currentRoom ??
+            buildWaitingRoomTransitionCurrentRoom({
+              source: response.requestType === "ROOM_JOIN" ? "room-join" : "room-create",
+              gameRoomId: response.commandResult.gameRoomId,
+              currentUserId: effectiveUser?.userId ?? "",
+            }),
           errorMessage: currentRoomResult.error
             ? getUserFacingErrorMessage(currentRoomResult.error)
             : null,

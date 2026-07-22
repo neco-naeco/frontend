@@ -165,15 +165,24 @@ export function shouldPreserveCurrentRoomOnEmptyHttpHydration(
   state: MainPageRealtimeRoomContextInput,
 ) {
   const activeRoomId = state.realtime.activeRoomId;
-  if (!activeRoomId || state.room.currentRoom?.gameRoomId !== activeRoomId) {
+  const storeRoom = state.room.currentRoom;
+  if (!activeRoomId || storeRoom?.gameRoomId !== activeRoomId) {
     return false;
   }
 
   if (state.game.gameState) {
-    return true;
+    return (
+      resolveMainPageRoomContextRoom(
+        mergeCurrentRoomFromGameState(
+          storeRoom,
+          state.game.gameState,
+          state.realtime.participants,
+        ),
+      ) !== null
+    );
   }
 
-  return resolveMainPageRoomContextRoom(state.room.currentRoom) !== null;
+  return resolveMainPageRoomContextRoom(storeRoom) !== null;
 }
 
 export function resolveCurrentRoomAfterHttpHydration(
@@ -202,14 +211,16 @@ export function resolveCurrentRoomAfterHttpHydration(
 
   const realtimeSnapshot = getRealtimeWaitingRoomSnapshot(state, storeRoom.gameRoomId);
   if (realtimeSnapshot) {
-    return mergeCurrentRoomFromGameState(
-      storeRoom,
-      realtimeSnapshot.gameState,
-      state.realtime.participants,
+    return resolveMainPageRoomContextRoom(
+      mergeCurrentRoomFromGameState(
+        storeRoom,
+        realtimeSnapshot.gameState,
+        state.realtime.participants,
+      ),
     );
   }
 
-  return storeRoom;
+  return resolveMainPageRoomContextRoom(storeRoom);
 }
 
 export function resolveMainPageWaitingRoomCurrentRoom({
@@ -219,6 +230,7 @@ export function resolveMainPageWaitingRoomCurrentRoom({
   gameState,
   missionState,
   participants,
+  invitations = [],
 }: {
   httpRoom: CurrentGameRoom | null | undefined;
   storeCurrentRoom: CurrentGameRoom | null;
@@ -226,6 +238,7 @@ export function resolveMainPageWaitingRoomCurrentRoom({
   gameState: GameState | null;
   missionState: MissionState | null;
   participants: RoomWaitingParticipant[];
+  invitations?: GameRoomParticipant[];
 }): CurrentGameRoom | null {
   const httpContextRoom = resolveMainPageRoomContextRoom(httpRoom);
   if (httpContextRoom) {
@@ -243,6 +256,10 @@ export function resolveMainPageWaitingRoomCurrentRoom({
   }
 
   if (!activeRoomId || !storeCurrentRoom || storeCurrentRoom.gameRoomId !== activeRoomId) {
+    return null;
+  }
+
+  if (invitations.some((invitation) => invitation.gameRoomId === storeCurrentRoom.gameRoomId)) {
     return null;
   }
 
@@ -278,4 +295,3 @@ export function resolveMainPageVisibleInvitations({
 
   return invitations;
 }
-
