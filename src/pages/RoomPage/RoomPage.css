@@ -1,17 +1,17 @@
 .room-page {
-  height: 100vh;
-  overflow: hidden;
+  min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: #f8f9f5;
   color: #1d2b1a;
-  font-family:
-    Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
 }
 
 .room-header {
   height: 78px;
   padding: 14px 28px 10px;
   display: grid;
-  grid-template-columns: 280px minmax(500px, 1fr) 540px;
+  grid-template-columns: minmax(220px, 280px) minmax(420px, 1fr) minmax(360px, 540px);
   align-items: center;
   column-gap: 24px;
 }
@@ -156,11 +156,10 @@
 }
 
 .room-layout {
-  height: calc(100vh - 78px);
-  min-height: 700px;
+  min-height: calc(100vh - 78px);
   padding: 0 28px 18px;
   display: grid;
-  grid-template-columns: 280px minmax(500px, 1fr) 540px;
+  grid-template-columns: minmax(220px, 280px) minmax(420px, 1fr) minmax(360px, 540px);
   gap: 24px;
 }
 
@@ -335,7 +334,7 @@
 
 .main-column {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) 270px;
+  grid-template-rows: minmax(720px, 1.28fr) minmax(360px, 0.72fr);
   gap: 14px;
   min-height: 0;
 }
@@ -363,6 +362,48 @@
   color: #4e7444;
   font-size: 16px;
   font-weight: 900;
+}
+
+.submit-warning {
+  margin: 68px 24px 0;
+  padding: 12px 14px;
+  border: 1px solid #efd7b3;
+  border-radius: 10px;
+  background: #fff8eb;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.submit-warning div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.submit-warning strong {
+  color: #8a5c10;
+  font-size: 13px;
+}
+
+.submit-warning span {
+  color: #7b6a4a;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.submit-warning button {
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid #dec48f;
+  border-radius: 8px;
+  background: #fff;
+  color: #7d5b19;
+  font-weight: 900;
+  cursor: pointer;
 }
 
 .code-editor {
@@ -473,6 +514,7 @@
   padding: 24px 30px;
   display: flex;
   flex-direction: column;
+  min-height: 520px;
 }
 
 .progress-summary {
@@ -519,10 +561,10 @@
   gap: 8px;
 }
 
-.progress-summary__stats div {
-  padding: 10px 8px;
-  text-align: center;
-}
+  .progress-summary__stats div {
+    padding: 10px 8px;
+    text-align: center;
+  }
 
 .progress-summary__stats dd {
   margin: 4px 0 0;
@@ -533,9 +575,11 @@
 
 .progress-steps {
   margin-top: 20px;
-  flex: 1;
+  flex: 0 0 auto;
+  padding-top: 10px;
   display: grid;
   grid-template-columns: repeat(4, minmax(110px, 1fr));
+  align-content: start;
   gap: 18px;
 }
 
@@ -562,6 +606,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  min-height: 164px;
 }
 
 .progress-step.active {
@@ -604,6 +649,7 @@
   line-height: 1.45;
   display: flex;
   align-items: center;
+  justify-content: center;
 }
 
 .progress-step em {
@@ -1259,8 +1305,8 @@
   stroke: #dfe9d7;
 }
 
-.gauge-progress {
-  stroke: #6faa55;
+  .gauge-progress {
+    stroke: #6faa55;
   stroke-linecap: round;
   stroke-dasharray: 339.292;
   stroke-dashoffset: 339.292;
@@ -1330,6 +1376,50 @@
   }
 }
 
+@media (max-width: 1480px) {
+  .room-header,
+  .room-layout {
+    padding-left: 20px;
+    padding-right: 20px;
+    gap: 16px;
+  }
+
+  .room-header {
+    grid-template-columns: minmax(180px, 224px) minmax(320px, 1fr) minmax(300px, 400px);
+  }
+
+  .room-layout {
+    grid-template-columns: minmax(180px, 224px) minmax(320px, 1fr) minmax(300px, 400px);
+  }
+
+  .room-status,
+  .team-strip {
+    gap: 10px;
+  }
+
+  .status-pill {
+    padding: 0 12px;
+    gap: 8px;
+    font-size: 12px;
+  }
+
+  .status-pill strong {
+    font-size: 17px;
+  }
+
+  .left-rail {
+    grid-template-rows: 250px 160px minmax(320px, 1fr);
+  }
+
+  .right-rail {
+    grid-template-rows: minmax(360px, 1.2fr) minmax(240px, 0.8fr);
+  }
+
+  .editor-status-panel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 1180px) {
   .room-page {
     height: auto;
@@ -1369,6 +1459,12 @@
   .editor-status-panel,
   .progress-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .submit-warning {
+    margin-top: 64px;
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 
@@ -1431,5 +1527,10 @@
   .reset-button {
     justify-content: center;
     flex: 1 1 180px;
+  }
+
+  .submit-warning {
+    margin-left: 12px;
+    margin-right: 12px;
   }
 }

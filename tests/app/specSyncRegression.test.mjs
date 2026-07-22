@@ -334,7 +334,7 @@ test("gameplay contract preserves evaluation ordering from submit feedback to ne
   });
 
   assert.equal(afterTurnChanged.game.turnSubmissionPending, false);
-  assert.equal(afterTurnChanged.game.lastTurnEvaluation, null);
+  assert.equal(afterTurnChanged.game.lastTurnEvaluation.feedbackMessage, "조건 불일치");
   assert.equal(afterTurnChanged.game.gameState.turnState.turnId, "turn-2");
   assert.equal(afterTurnChanged.game.gameState.turnState.currentPlayerId, "user-2");
   assert.equal(afterTurnChanged.game.gameState.turnState.status, "IN_PROGRESS");
