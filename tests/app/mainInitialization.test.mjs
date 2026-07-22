@@ -91,6 +91,18 @@ test("resolveCurrentGameRoomState keeps IN_PROGRESS rooms as the current room", 
   });
 });
 
+test("resolveCurrentGameRoomState ignores finished rooms when selecting the current room", () => {
+  const finishedRoom = createRoom({
+    gameRoomId: "room-finished",
+    status: "FINISHED",
+  });
+
+  assert.deepEqual(resolveCurrentGameRoomState([finishedRoom]), {
+    currentRoom: null,
+    duplicateRoomWarning: false,
+  });
+});
+
 test("resolveCurrentGameRoomState ignores invited rooms when selecting the current room", () => {
   const invitedRoom = createRoom({
     gameRoomId: "room-invited",
@@ -633,6 +645,35 @@ test("resolveCurrentRoomAfterHttpHydration preserves active realtime room when h
   assert.equal(preserved?.status, "IN_PROGRESS");
 });
 
+test("resolveCurrentRoomAfterHttpHydration clears finished rooms when http current room is null", () => {
+  const storeRoom = createRoom({ status: "IN_PROGRESS", joinedParticipantCount: 2 });
+
+  const preserved = resolveCurrentRoomAfterHttpHydration(null, {
+    room: { currentRoom: storeRoom },
+    realtime: {
+      activeRoomId: "room-1",
+      participants: [
+        {
+          userId: "owner-1",
+          nickname: "방장",
+          role: "OWNER",
+          membershipStatus: "JOINED",
+        },
+      ],
+    },
+    game: {
+      gameState: {
+        status: "FINISHED",
+        strikeCount: 1,
+        maxStrikeCount: 3,
+      },
+      missionState: { missionId: "mission-1" },
+    },
+  });
+
+  assert.equal(preserved, null);
+});
+
 test("resolveCurrentRoomAfterHttpHydration clears room when http is null and realtime session is inactive", () => {
   assert.equal(
     resolveCurrentRoomAfterHttpHydration(null, {
@@ -716,6 +757,37 @@ test("main page ready inputs hide invitations and empty prompt when realtime roo
   assert.equal(aiChatView.shouldShowEmptyPrompt, false);
 });
 
+test("resolveMainPageWaitingRoomCurrentRoom does not revive a stored room when an invitation for that room should be shown", () => {
+  const invitation = createInvitation({
+    gameRoomId: "room-1",
+    userId: "user-1",
+    role: "PARTICIPANT",
+  });
+  const waitingRoomCurrentRoom = resolveMainPageWaitingRoomCurrentRoom({
+    httpRoom: null,
+    storeCurrentRoom: createRoom({
+      gameRoomId: "room-1",
+      myRole: "PARTICIPANT",
+    }),
+    activeRoomId: "room-1",
+    gameState: null,
+    missionState: null,
+    participants: [],
+    invitations: [invitation],
+  });
+  const displayCurrentRoom = resolveMainPageDisplayCurrentRoom({
+    httpCurrentRoom: null,
+    waitingRoomCurrentRoom,
+  });
+  const visibleInvitations = resolveMainPageVisibleInvitations({
+    displayCurrentRoom,
+    invitations: [invitation],
+  });
+
+  assert.equal(waitingRoomCurrentRoom, null);
+  assert.deepEqual(visibleInvitations, [invitation]);
+});
+
 test("shouldPreserveCurrentRoomOnEmptyHttpHydration and waiting-room route keep socket eligibility", () => {
   const storeRoom = createRoom({ status: "IN_PROGRESS" });
   const context = {
@@ -757,6 +829,32 @@ test("shouldPreserveCurrentRoomOnEmptyHttpHydration and waiting-room route keep 
       userId: "owner-1",
     }).canConnect,
     true,
+  );
+});
+
+test("shouldPreserveCurrentRoomOnEmptyHttpHydration returns false for finished game state", () => {
+  const storeRoom = createRoom({ status: "IN_PROGRESS" });
+
+  assert.equal(
+    shouldPreserveCurrentRoomOnEmptyHttpHydration({
+      room: { currentRoom: storeRoom },
+      realtime: {
+        activeRoomId: "room-1",
+        participants: [
+          {
+            userId: "owner-1",
+            nickname: "방장",
+            role: "OWNER",
+            membershipStatus: "JOINED",
+          },
+        ],
+      },
+      game: {
+        gameState: { status: "FINISHED", strikeCount: 1, maxStrikeCount: 3 },
+        missionState: null,
+      },
+    }),
+    false,
   );
 });
 

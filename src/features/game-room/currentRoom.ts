@@ -20,7 +20,11 @@ export function resolveCurrentGameRoomState(
   rooms: CurrentGameRoom[],
   options: ResolveCurrentRoomOptions = {},
 ): CurrentGameRoomState {
-  const joinedRooms = rooms.filter((room) => room.myMembershipStatus === "JOINED");
+  const joinedRooms = rooms.filter(
+    (room) =>
+      room.myMembershipStatus === "JOINED" &&
+      (room.status === "WAITING" || room.status === "IN_PROGRESS"),
+  );
 
   if (joinedRooms.length === 0) {
     return {
