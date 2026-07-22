@@ -554,7 +554,6 @@ export function applyTurnChanged(
       ...state.game,
       gameState: mergedGameState,
       missionState: mergedMissionState,
-      lastTurnEvaluation: null,
       turnSubmissionPending: false,
     },
     editor: {

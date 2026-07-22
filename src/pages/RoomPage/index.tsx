@@ -64,6 +64,7 @@ const startCountdownSequence: StartCountdownValue[] = [5, 4, 3, 2, 1, "START"];
 const startCountdownStepMs = 1000;
 const startCountdownTimerOffsetMs =
   startCountdownSequence.length * startCountdownStepMs;
+const submissionStallWarningDelayMs = 10000;
 
 const participantAvatarImages = [
   whiteImg,
@@ -136,6 +137,8 @@ export function RoomPage() {
   const [isHintOpen, setIsHintOpen] = useState(false);
   const [hintPanelMessage, setHintPanelMessage] = useState<string | null>(null);
   const [isHintLoading, setIsHintLoading] = useState(false);
+  const [showSubmissionDelayWarning, setShowSubmissionDelayWarning] =
+    useState(false);
   const [startCountdown, setStartCountdown] =
     useState<StartCountdownValue>(5);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
@@ -168,6 +171,11 @@ export function RoomPage() {
     isRealtimeUnavailable,
   });
   const isTurnActionLocked = isEditorReadOnly || turnSubmissionPending;
+  const isSubmitDisabled =
+    turnSubmissionPending ||
+    isMissionGuideOpen ||
+    isRealtimeUnavailable ||
+    !canMutateActiveFile;
 
   const strikeDisplay = buildStrikeHeartDisplay(
     gameState?.strikeCount,
@@ -260,6 +268,19 @@ export function RoomPage() {
     turnState?.turnId,
     turnTimerOffsetMs,
   ]);
+
+  useEffect(() => {
+    if (!turnSubmissionPending || lastTurnEvaluation) {
+      setShowSubmissionDelayWarning(false);
+      return;
+    }
+
+    const warningTimerId = window.setTimeout(() => {
+      setShowSubmissionDelayWarning(true);
+    }, submissionStallWarningDelayMs);
+
+    return () => window.clearTimeout(warningTimerId);
+  }, [lastTurnEvaluation, turnSubmissionPending]);
 
   useEffect(() => {
     return () => {
@@ -407,7 +428,7 @@ export function RoomPage() {
       !gameRoomId ||
       !authUserId ||
       !turnState?.turnId ||
-      isTurnActionLocked ||
+      isSubmitDisabled ||
       !canMutateActiveFile
     ) {
       return;
@@ -431,13 +452,28 @@ export function RoomPage() {
       ...state,
       game: {
         ...state.game,
+        lastTurnEvaluation: null,
         turnSubmissionPending: true,
       },
-      editor: promoteSubmittedSnapshotToAuthoritative(
-        state.editor,
-        codeSnapshot,
-        turnState.turnId,
-      ),
+      editor: {
+        ...promoteSubmittedSnapshotToAuthoritative(
+          state.editor,
+          codeSnapshot,
+          turnState.turnId,
+        ),
+        markers: [],
+      },
+    }));
+  };
+
+  const handleReleaseSubmissionLock = () => {
+    setShowSubmissionDelayWarning(false);
+    store.setState((state) => ({
+      ...state,
+      game: {
+        ...state.game,
+        turnSubmissionPending: false,
+      },
     }));
   };
 
@@ -495,12 +531,15 @@ export function RoomPage() {
             canEditTurn={canEditTurn}
             canMutateActiveFile={canMutateActiveFile}
             isEditorReadOnly={isEditorReadOnly}
+            isSubmitDisabled={isSubmitDisabled}
             isTurnActionLocked={isTurnActionLocked}
             lastTurnEvaluation={lastTurnEvaluation}
             selectedCode={selectedCode}
             selectedFileName={selectedFileName}
+            showSubmissionDelayWarning={showSubmissionDelayWarning}
             turnSubmissionPending={turnSubmissionPending}
             onChange={handleEditorChange}
+            onReleaseSubmissionLock={handleReleaseSubmissionLock}
             onReset={handleResetEditor}
             onSubmit={handleSubmitTurn}
           />
@@ -726,12 +765,15 @@ function EditorPanel({
   canEditTurn,
   canMutateActiveFile,
   isEditorReadOnly,
+  isSubmitDisabled,
   isTurnActionLocked,
   lastTurnEvaluation,
   selectedCode,
   selectedFileName,
+  showSubmissionDelayWarning,
   turnSubmissionPending,
   onChange,
+  onReleaseSubmissionLock,
   onReset,
   onSubmit,
 }: {
@@ -739,12 +781,15 @@ function EditorPanel({
   canEditTurn: boolean;
   canMutateActiveFile: boolean;
   isEditorReadOnly: boolean;
+  isSubmitDisabled: boolean;
   isTurnActionLocked: boolean;
   lastTurnEvaluation: unknown;
   selectedCode: string;
   selectedFileName: string;
+  showSubmissionDelayWarning: boolean;
   turnSubmissionPending: boolean;
   onChange: (nextValue: string) => void;
+  onReleaseSubmissionLock: () => void;
   onReset: () => void;
   onSubmit: () => void;
 }) {
@@ -761,6 +806,17 @@ function EditorPanel({
   return (
     <section className="editor-card panel">
       <div className="editor-tab">{selectedFileName}</div>
+      {showSubmissionDelayWarning ? (
+        <div className="submit-warning" role="status">
+          <div>
+            <strong>제출 응답이 지연되고 있습니다.</strong>
+            <span>실시간 이벤트가 늦으면 잠금을 해제한 뒤 다시 제출할 수 있습니다.</span>
+          </div>
+          <button type="button" onClick={onReleaseSubmissionLock}>
+            잠금 해제
+          </button>
+        </div>
+      ) : null}
       <textarea
         aria-label={`${selectedFileName} 코드 편집기`}
         className="code-editor"
@@ -773,7 +829,7 @@ function EditorPanel({
         <button
           className={`submit-button ${canMutateActiveFile ? "active" : ""}`}
           type="button"
-          disabled={isTurnActionLocked || !canMutateActiveFile}
+          disabled={isSubmitDisabled || !canMutateActiveFile}
           onClick={onSubmit}
         >
           ▶ {submitLabel}

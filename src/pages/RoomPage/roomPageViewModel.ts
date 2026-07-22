@@ -234,14 +234,16 @@ export function buildMissionProgressSteps(
   const listedSteps = missionState?.steps ?? [];
 
   if (listedSteps.length > 0) {
-    return listedSteps.map((step) => ({
+    return [...listedSteps]
+      .sort((left, right) => left.stepOrder - right.stepOrder)
+      .map((step) => ({
       key: step.gameRoomMissionStepId || `${step.stepOrder}`,
       stepOrder: step.stepOrder,
       title: step.title || `Step ${step.stepOrder}`,
       description: step.description || "Step description is not available yet.",
       status: step.status,
       isActive: step.gameRoomMissionStepId === missionState?.gameRoomMissionStepId,
-    }));
+      }));
   }
 
   if (!missionState) {

@@ -138,7 +138,7 @@ test("turn-evaluated keeps editor locked for submitter until turn-changed even i
   );
 });
 
-test("applyTurnChanged updates turn state, mission state, and resets evaluation on new turn", () => {
+test("applyTurnChanged updates turn state and mission state while preserving the latest evaluation", () => {
   const store = createAppStore();
   seedGameplayStore(store);
   store.setState((state) => ({
@@ -195,7 +195,7 @@ test("applyTurnChanged updates turn state, mission state, and resets evaluation 
   });
 
   assert.equal(next.game.turnSubmissionPending, false);
-  assert.equal(next.game.lastTurnEvaluation, null);
+  assert.equal(next.game.lastTurnEvaluation.feedbackMessage, "old");
   assert.equal(next.game.gameState.turnState.turnId, "turn-2");
   assert.equal(next.game.missionState.title, "Mission step 2");
   assert.equal(next.editor.turnBaselineTurnId, "turn-2");
@@ -373,7 +373,7 @@ test("applyTurnChanged reconstructs editable next-turn state from backend-first 
   });
 
   assert.equal(next.game.turnSubmissionPending, false);
-  assert.equal(next.game.lastTurnEvaluation, null);
+  assert.equal(next.game.lastTurnEvaluation.feedbackMessage, "old");
   assert.equal(next.game.gameState.turnState.turnId, "turn-2");
   assert.equal(next.game.gameState.turnState.currentPlayerId, "user-2");
   assert.equal(next.game.gameState.turnState.turnNumber, 2);
@@ -1344,7 +1344,7 @@ test("bindRoomRealtimeEvents applies evaluate, turn-change, and mission-result i
       occurredAt: "2026-05-25T10:11:00Z",
     });
 
-    assert.equal(store.getState().game.lastTurnEvaluation, null);
+    assert.equal(store.getState().game.lastTurnEvaluation.feedbackMessage, "passed");
     assert.equal(store.getState().game.turnSubmissionPending, false);
     assert.equal(store.getState().game.gameState.turnState.turnId, "turn-2");
 
