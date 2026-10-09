@@ -1,6 +1,9 @@
 import { apiClient } from "../../shared/api/apiClient";
 import type {
   CurrentGameRoom,
+  CreatePracticeRoomRequest,
+  CreatePracticeRoomResponse,
+  GameRoomMode,
   GameRoomStatus,
   MembershipStatus,
   MissionDifficulty,
@@ -37,6 +40,10 @@ function isMissionDifficulty(value: unknown): value is MissionDifficulty {
   return value === "EASY" || value === "NORMAL" || value === "HARD";
 }
 
+function isGameRoomMode(value: unknown): value is GameRoomMode {
+  return value === "MULTIPLAYER" || value === "PRACTICE";
+}
+
 function normalizeCurrentRoom(
   room: RawCurrentGameRoom,
   userId: string,
@@ -69,6 +76,7 @@ function normalizeCurrentRoom(
     maxParticipants: typeof room.maxParticipants === "number" ? room.maxParticipants : 4,
     createdAt: typeof room.createdAt === "string" ? room.createdAt : "",
     updatedAt: typeof room.updatedAt === "string" ? room.updatedAt : "",
+    ...(isGameRoomMode(room.mode) ? { mode: room.mode } : {}),
   };
 }
 
@@ -86,6 +94,14 @@ export function createGameRoomApi(client: GameRoomApiClient = apiClient) {
     async startGame(gameRoomId: string, request: StartGameRequest) {
       const response = await client.post<StartGameResponse>(
         `/game-rooms/${encodeURIComponent(gameRoomId)}/start`,
+        request,
+      );
+
+      return response ?? { success: false };
+    },
+    async createPracticeRoom(request: CreatePracticeRoomRequest) {
+      const response = await client.post<CreatePracticeRoomResponse>(
+        "/practice-rooms",
         request,
       );
 

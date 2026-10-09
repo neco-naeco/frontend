@@ -143,6 +143,32 @@
   cursor: pointer;
 }
 
+.result-page__practice-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: auto;
+}
+
+.result-page__practice-actions button {
+  min-height: 48px;
+  border: 0;
+  border-radius: 8px;
+  background: #4e8a3c;
+  color: #fff;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.result-page__practice-actions button + button {
+  background: #7e705d;
+}
+
+.result-page__practice-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 @media (max-width: 640px) {
   .result-page__overlay {
     padding: 16px;

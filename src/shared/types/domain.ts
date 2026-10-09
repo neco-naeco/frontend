@@ -15,6 +15,9 @@ export type AiChatMessageType = "TEXT" | "COMMAND_RESULT" | "SYSTEM_NOTICE";
 
 export type MissionDifficulty = "EASY" | "NORMAL" | "HARD";
 
+/** Omitted by older room and realtime payloads; treat that as multiplayer. */
+export type GameRoomMode = "MULTIPLAYER" | "PRACTICE";
+
 export type RoomCommandStatus = "PENDING" | "SUCCESS" | "FAILED";
 
 export type GameRoomStatus =
@@ -112,6 +115,7 @@ export type CurrentGameRoom = {
   maxParticipants: number;
   createdAt: string;
   updatedAt: string;
+  mode?: GameRoomMode;
 };
 
 export type CurrentGameRoomState = {
@@ -124,6 +128,15 @@ export type StartGameRequest = {
 };
 
 export type StartGameResponse = {
+  success: boolean;
+};
+
+export type CreatePracticeRoomRequest = {
+  difficulty: MissionDifficulty;
+  missionTemplateId: string;
+};
+
+export type CreatePracticeRoomResponse = {
   success: boolean;
 };
 
@@ -201,6 +214,7 @@ export type RoomWaitingParticipant = {
 
 export type GameState = {
   status: GameRoomStatus;
+  mode?: GameRoomMode;
   difficulty?: MissionDifficulty;
   timeLimitSeconds?: number;
   minParticipants?: number;
@@ -352,6 +366,7 @@ export type GameStartedUiHints = {
 
 export type GameStartedEvent = {
   gameRoomId: string;
+  mode?: GameRoomMode;
   gameState: GameState;
   missionState: MissionState;
   uiHints: GameStartedUiHints;
@@ -423,6 +438,7 @@ export type TurnChangedEvent = {
 
 export type GameStateUpdatedEvent = {
   gameRoomId: string;
+  mode?: GameRoomMode;
   gameState: GameState;
   missionState?: MissionState | null;
   occurredAt?: string;

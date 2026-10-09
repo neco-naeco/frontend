@@ -5,9 +5,10 @@ import { useNavigate, useParams } from "react-router-dom";
 import teamHappyImg from "../../assets/characters/team-happy.png";
 import teamSadImg from "../../assets/characters/team-sad.png";
 import { useAppStore, useAppStoreApi } from "../../app/providers/ClientStateProvider";
+import type { MissionDifficulty } from "../../shared/types/domain";
 import { PageShell } from "../../shared/components/PageShell";
 import {
-  formatMissionExecutionResult,
+  getMissionResultPresentation,
   loadMissionResultSession,
 } from "../../features/game-result/missionResultModel";
 import { RoomPage } from "../RoomPage";
@@ -32,6 +33,9 @@ export function ResultPage() {
   }
 
   const realtimeMissionResult = useAppStore((state) => state.game.missionResult);
+  const currentRoom = useAppStore((state) => state.room.currentRoom);
+  const gameState = useAppStore((state) => state.game.gameState);
+  const missionState = useAppStore((state) => state.game.missionState);
   const missionResult =
     realtimeMissionResult ?? loadMissionResultSession(gameRoomId);
 
@@ -50,10 +54,44 @@ export function ResultPage() {
     );
   }
 
-  const isSuccess = missionResult.isMissionCleared;
-  const executionResult = formatMissionExecutionResult(missionResult);
+  const resultPresentation = getMissionResultPresentation(missionResult);
+  const { executionOutput, executionLabel, isSuccess } = resultPresentation;
   const descriptionId = "mission-result-description";
   const titleId = "mission-result-title";
+  const isPractice = currentRoom?.mode === "PRACTICE" || gameState?.mode === "PRACTICE";
+  const practiceDifficulty = missionState?.difficulty ?? gameState?.difficulty ?? currentRoom?.difficulty;
+  const practiceTemplateId = missionState?.missionTemplateId;
+  const canRestartPractice =
+    isPractice &&
+    Boolean(practiceTemplateId) &&
+    Boolean(practiceDifficulty);
+
+  function goToPracticeSelection() {
+    getRoomSocketLifecycleController()?.leave(gameRoomId);
+    clearRoomContextAfterTerminatedSession(store);
+    queryClient.removeQueries({ queryKey: ["main-page-current-room"] });
+    queryClient.removeQueries({ queryKey: ["main-page-invitations"] });
+    navigate("/main", { state: { practice: { action: "select" } } });
+  }
+
+  function restartPractice() {
+    if (!practiceTemplateId || !practiceDifficulty) return;
+    getRoomSocketLifecycleController()?.leave(gameRoomId);
+    clearRoomContextAfterTerminatedSession(store);
+    queryClient.removeQueries({ queryKey: ["main-page-current-room"] });
+    queryClient.removeQueries({ queryKey: ["main-page-invitations"] });
+    navigate("/main", {
+      state: {
+        practice: {
+          action: "restart",
+          selection: {
+            difficulty: practiceDifficulty as MissionDifficulty,
+            missionTemplateId: practiceTemplateId,
+          },
+        },
+      },
+    });
+  }
 
   return (
     <main className="result-page">
@@ -94,16 +132,27 @@ export function ResultPage() {
               : "팀 목숨을 모두 사용했어요."}
           </p>
 
-          {isSuccess && executionResult ? (
-            <section className="result-dialog__execution" aria-label="실행 결과">
-              <h2>✍🏻 실행 결과</h2>
-              <output>{executionResult}</output>
+          {executionOutput ? (
+            <section className="result-dialog__execution" aria-label={executionLabel}>
+              <h2>✍🏻 {executionLabel}</h2>
+              <output>{executionOutput}</output>
             </section>
           ) : null}
 
-          <button type="button" autoFocus onClick={() => void returnToMain()}>
-            게임 종료
-          </button>
+          {isPractice ? (
+            <div className="result-page__practice-actions">
+              <button type="button" autoFocus disabled={!canRestartPractice} onClick={restartPractice}>
+                같은 미션 다시 연습
+              </button>
+              <button type="button" onClick={goToPracticeSelection}>
+                다른 미션 선택
+              </button>
+            </div>
+          ) : (
+            <button type="button" autoFocus onClick={() => void returnToMain()}>
+              게임 종료
+            </button>
+          )}
         </section>
       </div>
     </main>

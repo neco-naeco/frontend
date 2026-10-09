@@ -21,7 +21,7 @@ import {
   applyGameStarted,
   applyGameStateUpdated,
   applyMissionResult,
-  applyRoomParticipantsUpdated,
+  applyRoomParticipantsUpdatedWithNavigation,
   applyTurnChanged,
   applyTurnEvaluated,
   parseRealtimeEventPayload,
@@ -46,7 +46,13 @@ export function bindRoomRealtimeEvents(
       return;
     }
 
-    store.setState((state) => applyRoomParticipantsUpdated(state, event));
+    const { state: nextState, navigationTarget } =
+      applyRoomParticipantsUpdatedWithNavigation(store.getState(), event);
+    store.setState(nextState);
+
+    if (navigationTarget) {
+      navigateToGameplay(navigationTarget);
+    }
   }
 
   function handleGameStarted(payload: unknown) {

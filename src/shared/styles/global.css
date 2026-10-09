@@ -432,6 +432,32 @@ select {
   gap: 12px;
 }
 
+.main-practice-entry {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid #bcd39c;
+  border-radius: 999px;
+  background: #f2fae9;
+  color: #476d30;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.main-practice-entry:hover:not(:disabled) {
+  background: #e4f3d5;
+}
+
+.main-practice-entry:focus-visible {
+  outline: 3px solid #5d8a43;
+  outline-offset: 2px;
+}
+
+.main-practice-entry:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .main-user-chip svg {
   width: 20px;
   height: 20px;

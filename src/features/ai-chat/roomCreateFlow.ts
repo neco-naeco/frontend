@@ -43,6 +43,20 @@ function parseTemplateOption(value: unknown): RoomCreateTemplateOption | null {
   };
 }
 
+export function extractMissionTemplateOptions(
+  metadata: unknown,
+  difficulty?: RoomCreateDifficulty,
+) {
+  if (!isRecord(metadata) || !Array.isArray(metadata.templates)) {
+    return [];
+  }
+
+  return metadata.templates
+    .map(parseTemplateOption)
+    .filter((template): template is RoomCreateTemplateOption => template !== null)
+    .filter((template) => !difficulty || template.difficulty === difficulty);
+}
+
 export function extractRoomCreateTemplateOptions({
   messages,
   pendingRequestId,
@@ -65,15 +79,7 @@ export function extractRoomCreateTemplateOptions({
       continue;
     }
 
-    const { templates } = message.metadata;
-
-    if (!Array.isArray(templates)) {
-      continue;
-    }
-
-    const parsedTemplates = templates
-      .map(parseTemplateOption)
-      .filter((template): template is RoomCreateTemplateOption => template !== null);
+    const parsedTemplates = extractMissionTemplateOptions(message.metadata);
 
     if (parsedTemplates.length > 0) {
       return parsedTemplates;

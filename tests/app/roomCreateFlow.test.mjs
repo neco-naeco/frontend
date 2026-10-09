@@ -5,6 +5,7 @@ import {
   buildRoomCreateTemplateConfirmationMessage,
   extractLatestRoomCreateDifficultyForRequest,
   extractLatestMissionTemplateIdForRoom,
+  extractMissionTemplateOptions,
   extractRoomCreateTemplateOptions,
   shouldShowRoomCreateDifficultySelection,
 } from "../../src/features/ai-chat/roomCreateFlow.ts";
@@ -107,6 +108,39 @@ test("extractRoomCreateTemplateOptions ignores stale template metadata from a pr
   });
 
   assert.deepEqual(templates, []);
+});
+
+test("extractMissionTemplateOptions returns only selectable templates for the practice difficulty", () => {
+  const templates = extractMissionTemplateOptions(
+    {
+      templates: [
+        {
+          templateId: "template-easy",
+          title: "기초 산술 연산",
+          description: "입문 문제",
+          difficulty: "EASY",
+        },
+        {
+          templateId: "template-hard",
+          title: "그래프 탐색",
+          description: "도전 문제",
+          difficulty: "HARD",
+        },
+        { templateId: "invalid" },
+      ],
+    },
+    "EASY",
+  );
+
+  assert.deepEqual(templates, [
+    {
+      templateId: "template-easy",
+      title: "기초 산술 연산",
+      description: "입문 문제",
+      difficulty: "EASY",
+    },
+  ]);
+  assert.deepEqual(extractMissionTemplateOptions(null, "EASY"), []);
 });
 
 test("extractLatestRoomCreateDifficultyForRequest returns difficulty metadata only for the active request", () => {

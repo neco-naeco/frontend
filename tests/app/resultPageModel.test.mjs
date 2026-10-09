@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   formatMissionExecutionResult,
+  getMissionResultPresentation,
   loadMissionResultSession,
   saveMissionResultSession,
 } from "../../src/features/game-result/missionResultModel.ts";
@@ -61,6 +62,42 @@ test("formatMissionExecutionResult preserves a legacy scalar string", () => {
   const result = createBackendMissionResult({ actualOutputs: ["42"] });
 
   assert.equal(formatMissionExecutionResult(result), "42");
+});
+
+test("passed judge output is hidden from the result screen", () => {
+  const presentation = getMissionResultPresentation(
+    createBackendMissionResult({
+      isMissionCleared: true,
+      judgeStatus: "PASSED",
+      executionSummary: {
+        status: "SUCCESS",
+        exitCode: 0,
+        stdout: "ERROR: invalid number\n",
+        stderr: "",
+      },
+    }),
+  );
+
+  assert.equal(presentation.isSuccess, true);
+  assert.equal(presentation.executionOutput, null);
+});
+
+test("runtime failures retain an explicit error label and stderr", () => {
+  const presentation = getMissionResultPresentation(
+    createBackendMissionResult({
+      judgeStatus: "ERROR",
+      executionSummary: {
+        status: "FAILED",
+        exitCode: 1,
+        stdout: "partial output",
+        stderr: "TypeError: invalid input\n",
+      },
+    }),
+  );
+
+  assert.equal(presentation.isSuccess, false);
+  assert.equal(presentation.executionLabel, "실행 오류");
+  assert.equal(presentation.executionOutput, "TypeError: invalid input");
 });
 
 test("mission result session restores the realtime result after a refresh", () => {

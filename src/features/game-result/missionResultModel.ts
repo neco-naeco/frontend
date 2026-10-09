@@ -58,6 +58,25 @@ export function formatMissionExecutionResult(result: MissionResult) {
   return stdout || null;
 }
 
+export function getMissionResultPresentation(result: MissionResult) {
+  const isSuccess = result.judgeStatus === "PASSED" || result.isMissionCleared;
+  const executionOutput = formatMissionExecutionResult(result);
+  const runtimeStatus = result.executionSummary?.status;
+  const hasRuntimeError =
+    !isSuccess &&
+    (runtimeStatus === "FAILED" || runtimeStatus === "TIMEOUT" || result.judgeStatus === "ERROR");
+
+  return {
+    isSuccess,
+    executionLabel: hasRuntimeError ? "실행 오류" : "테스트 출력",
+    executionOutput: isSuccess
+      ? null
+      : hasRuntimeError
+      ? result.executionSummary?.stderr?.trim() || executionOutput
+      : executionOutput,
+  };
+}
+
 export function saveMissionResultSession(
   gameRoomId: string,
   result: MissionResult,

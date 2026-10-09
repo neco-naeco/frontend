@@ -6,6 +6,7 @@ import {
   applyGameStarted,
   applyGameStateUpdated,
   applyRoomParticipantsUpdated,
+  applyRoomParticipantsUpdatedWithNavigation,
   bootstrapEditorFromMission,
   parseRealtimeEventPayload,
   shouldRetainRoomSocketForPath,
@@ -121,6 +122,60 @@ test("applyRoomParticipantsUpdated persists participants and included game/missi
     next.room.roomWaitingState.changedParticipant,
     event.changedParticipant,
   );
+});
+
+test("join-room in-progress snapshot restores a missed practice game start", () => {
+  const store = createAppStore();
+  seedStore(store, {
+    room: {
+      currentRoom: createRoom({ mode: "PRACTICE" }),
+      roomWaitingState: null,
+      invitations: [],
+      duplicateRoomWarning: false,
+    },
+  });
+
+  const result = applyRoomParticipantsUpdatedWithNavigation(store.getState(), {
+    gameRoomId: "room-1",
+    participants: [
+      {
+        userId: "user-1",
+        nickname: "나",
+        role: "OWNER",
+        membershipStatus: "JOINED",
+      },
+    ],
+    changedParticipant: null,
+    gameState: {
+      status: "IN_PROGRESS",
+      mode: "PRACTICE",
+      turnState: {
+        turnId: "turn-1",
+        turnNumber: 1,
+        currentPlayerId: "user-1",
+        startedAt: "2026-05-25T10:10:00Z",
+        deadlineAt: "2026-05-25T10:10:30Z",
+        timeLimitSeconds: 30,
+        remainingTimeSeconds: 30,
+        status: "IN_PROGRESS",
+      },
+    },
+    missionState: {
+      missionId: "mission-1",
+      title: "개인 연습 미션",
+      projectStructure: {
+        rootPath: "/workspace",
+        entryFilePath: "main.py",
+        files: [{ filePath: "main.py", language: "python", readonly: false }],
+      },
+    },
+    occurredAt: "2026-05-25T10:10:00Z",
+  });
+
+  assert.equal(result.navigationTarget, "/rooms/room-1/play");
+  assert.equal(result.state.game.gameState.mode, "PRACTICE");
+  assert.equal(result.state.game.missionState.title, "개인 연습 미션");
+  assert.equal(result.state.editor.activeFilePath, "main.py");
 });
 
 test("applyGameStarted bootstraps gameplay state and only routes when enterGameScreen is true", () => {
@@ -415,6 +470,61 @@ test("applyGameStateUpdated merges partial game and mission state for the active
   assert.equal(next.game.gameState.turnState.turnId, "turn-1");
   assert.equal(next.game.missionState.title, "After");
   assert.equal(next.room.currentRoom.status, "IN_PROGRESS");
+});
+
+test("post-submit practice state update retains the authoritative practice mode", () => {
+  const store = createAppStore();
+  seedStore(store, {
+    room: {
+      currentRoom: createRoom({ mode: "PRACTICE", minParticipants: 1, maxParticipants: 1 }),
+      roomWaitingState: null,
+      invitations: [],
+      duplicateRoomWarning: false,
+    },
+    game: {
+      gameState: {
+        status: "IN_PROGRESS",
+        turnState: {
+          turnId: "turn-1",
+          turnNumber: 1,
+          currentPlayerId: "user-1",
+          startedAt: "2026-05-25T10:10:00Z",
+          deadlineAt: "2026-05-25T10:10:30Z",
+          timeLimitSeconds: 30,
+          remainingTimeSeconds: 30,
+          status: "SUBMITTED",
+        },
+      },
+      missionState: { missionId: "mission-1" },
+      showMissionGuideModal: false,
+      lastTurnEvaluation: null,
+      missionResult: null,
+      turnSubmissionPending: true,
+      hintsByStepId: {},
+    },
+  });
+
+  const next = applyGameStateUpdated(store.getState(), {
+    gameRoomId: "room-1",
+    mode: "PRACTICE",
+    gameState: {
+      status: "IN_PROGRESS",
+      turnState: {
+        turnId: "turn-2",
+        turnNumber: 2,
+        currentPlayerId: "user-1",
+        startedAt: "2026-05-25T10:10:30Z",
+        deadlineAt: "2026-05-25T10:11:00Z",
+        timeLimitSeconds: 30,
+        remainingTimeSeconds: 30,
+        status: "IN_PROGRESS",
+      },
+    },
+  });
+
+  assert.equal(next.game.gameState.mode, "PRACTICE");
+  assert.equal(next.room.currentRoom.mode, "PRACTICE");
+  assert.equal(next.game.gameState.turnState.turnId, "turn-2");
 });
 
 test("bindRoomRealtimeEvents routes to play only on game-started with enterGameScreen", () => {

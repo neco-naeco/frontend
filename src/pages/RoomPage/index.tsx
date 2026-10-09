@@ -70,6 +70,7 @@ const startCountdownStepMs = 1000;
 const startCountdownTimerOffsetMs =
   startCountdownSequence.length * startCountdownStepMs;
 const submissionStallWarningDelayMs = 10000;
+const emptyEditorFiles: Record<string, string> = {};
 
 const participantAvatarImages = [
   whiteImg,
@@ -122,7 +123,7 @@ export function RoomPage() {
   const turnSubmissionPending = useAppStore(
     (state) => state.game.turnSubmissionPending,
   );
-  const editorFiles = useAppStore((state) => state.editor.files);
+  const editorFiles = useAppStore((state) => state.editor.files) ?? emptyEditorFiles;
   const activeFilePath = useAppStore((state) => state.editor.activeFilePath);
   const participants = useAppStore((state) => state.realtime.participants);
   const realtimeStatus = useAppStore((state) => state.realtime.connectionStatus);
@@ -130,6 +131,7 @@ export function RoomPage() {
   const hintsByStepId = useAppStore((state) => state.game.hintsByStepId);
   const closeCode = useAppStore((state) => state.realtime.closeCode);
   const closeReasonCode = useAppStore((state) => state.realtime.closeReasonCode);
+  const currentRoomMode = useAppStore((state) => state.room.currentRoom?.mode);
 
   const closeBannerCopy = getRealtimeCloseBannerCopy({
     closeCode,
@@ -163,6 +165,9 @@ export function RoomPage() {
   const selectedFileName = activeFileTab?.fileName ?? "파일 없음";
 
   const turnState = gameState?.turnState;
+  const isPracticeMode =
+    gameState?.mode === "PRACTICE" ||
+    currentRoomMode === "PRACTICE";
   const isMyTurn = turnState?.currentPlayerId === authUserId;
   const canEditTurn = canEditGameplay(authUserId, gameState);
   const isTurnExpired = remainingSeconds <= 0;
@@ -485,6 +490,7 @@ export function RoomPage() {
   return (
     <div className="room-page">
       <RoomHeader
+        isPracticeMode={isPracticeMode}
         languageLabel={languageLabel}
         participantRows={participantRows}
         remainingSeconds={remainingSeconds}
@@ -526,6 +532,7 @@ export function RoomPage() {
 
           <MemberPanel
             currentTurnLabel={currentTurnLabel}
+            isPracticeMode={isPracticeMode}
             participantRows={participantRows}
           />
         </aside>
@@ -569,7 +576,7 @@ export function RoomPage() {
             }}
           />
 
-          <ChatPanel />
+          {!isPracticeMode ? <ChatPanel /> : null}
         </aside>
       </main>
 
@@ -585,6 +592,7 @@ export function RoomPage() {
 }
 
 function RoomHeader({
+  isPracticeMode,
   languageLabel,
   participantRows,
   remainingSeconds,
@@ -592,6 +600,7 @@ function RoomHeader({
   timerText,
   turnNumber,
 }: {
+  isPracticeMode: boolean;
   languageLabel: string | null;
   participantRows: RoomParticipantRow[];
   remainingSeconds: number;
@@ -639,15 +648,21 @@ function RoomHeader({
       </div>
 
       <div className="team-strip">
-        <strong>팀원 {participantRows.length}명</strong>
-        {participantRows.map((participant) => (
-          <span className="avatar" key={participant.userId}>
-            <img
-              src={getParticipantAvatar(participant.userId)}
-              alt={getParticipantAvatarAlt(participant.nickname)}
-            />
-          </span>
-        ))}
+        {isPracticeMode ? (
+          <strong>개인 연습</strong>
+        ) : (
+          <>
+            <strong>팀원 {participantRows.length}명</strong>
+            {participantRows.map((participant) => (
+              <span className="avatar" key={participant.userId}>
+                <img
+                  src={getParticipantAvatar(participant.userId)}
+                  alt={getParticipantAvatarAlt(participant.nickname)}
+                />
+              </span>
+            ))}
+          </>
+        )}
         <button className="settings-button" type="button" aria-label="설정">
           ⚙
         </button>
@@ -741,9 +756,11 @@ function FilePanel({
 
 function MemberPanel({
   currentTurnLabel,
+  isPracticeMode,
   participantRows,
 }: {
   currentTurnLabel: string;
+  isPracticeMode: boolean;
   participantRows: RoomParticipantRow[];
 }) {
   return (
@@ -753,7 +770,9 @@ function MemberPanel({
         <span className="panel-header__meta">{currentTurnLabel}</span>
       </div>
       <div className="member-list">
-        {participantRows.length > 0 ? (
+        {isPracticeMode ? (
+          <p>현재 턴: {currentTurnLabel}</p>
+        ) : participantRows.length > 0 ? (
           participantRows.map((member) => (
             <ParticipantRow key={member.userId} member={member} />
           ))

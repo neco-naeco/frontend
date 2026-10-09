@@ -30,6 +30,11 @@ export type ApplyGameStartedResult = {
   navigationTarget: GameplayNavigationTarget | null;
 };
 
+export type ApplyRoomParticipantsUpdatedResult = {
+  state: RootClientState;
+  navigationTarget: GameplayNavigationTarget | null;
+};
+
 export type ApplyMissionResultResult = {
   state: RootClientState;
   navigationTarget: ResultNavigationTarget | null;
@@ -78,6 +83,7 @@ export function mergeCurrentRoomFromGameState(
       joinedParticipantCount > 0
         ? joinedParticipantCount
         : currentRoom.joinedParticipantCount,
+    ...(gameState.mode ? { mode: gameState.mode } : {}),
   };
 }
 
@@ -225,6 +231,34 @@ export function applyRoomParticipantsUpdated(
   };
 }
 
+/**
+ * A `join-room` response is delivered as `room-participants-updated`. When a
+ * client reconnects after a game has already started, this snapshot is the
+ * authoritative replacement for the missed `game-started` event.
+ */
+export function applyRoomParticipantsUpdatedWithNavigation(
+  state: RootClientState,
+  event: RoomParticipantsUpdatedEvent,
+): ApplyRoomParticipantsUpdatedResult {
+  const updatedState = applyRoomParticipantsUpdated(state, event);
+
+  if (event.gameState.status !== "IN_PROGRESS" || !event.missionState) {
+    return { state: updatedState, navigationTarget: null };
+  }
+
+  return applyGameStarted(updatedState, {
+    gameRoomId: event.gameRoomId,
+    ...(event.gameState.mode ? { mode: event.gameState.mode } : {}),
+    gameState: event.gameState,
+    missionState: event.missionState,
+    uiHints: {
+      enterGameScreen: true,
+      showMissionGuideModal: false,
+    },
+    occurredAt: event.occurredAt,
+  });
+}
+
 export function applyGameStarted(
   state: RootClientState,
   event: GameStartedEvent,
@@ -234,12 +268,15 @@ export function applyGameStarted(
   }
 
   const gameplayParticipants = resolveGameplayParticipants(state, event.gameRoomId);
+  const eventGameState = event.mode
+    ? { ...event.gameState, mode: event.mode }
+    : event.gameState;
   const bootstrappedEditor = bootstrapEditorFromMission(event.missionState);
 
   let nextState: RootClientState = {
     ...state,
     game: {
-      gameState: event.gameState,
+      gameState: eventGameState,
       missionState: event.missionState,
       showMissionGuideModal: event.uiHints.showMissionGuideModal,
       lastTurnEvaluation: null,
@@ -249,7 +286,7 @@ export function applyGameStarted(
     },
     editor: onEditorTurnIdChanged(
       bootstrappedEditor,
-      event.gameState.turnState?.turnId,
+      eventGameState.turnState?.turnId,
     ),
     realtime: {
       ...state.realtime,
@@ -260,7 +297,7 @@ export function applyGameStarted(
   if (state.room.currentRoom?.gameRoomId === event.gameRoomId) {
     const currentRoom = mergeCurrentRoomFromGameState(
       state.room.currentRoom,
-      event.gameState,
+      eventGameState,
       gameplayParticipants,
     );
 
@@ -273,7 +310,7 @@ export function applyGameStarted(
           ? {
               ...state.room.roomWaitingState,
               currentRoom,
-              gameState: event.gameState,
+              gameState: eventGameState,
               missionState: event.missionState,
             }
           : state.room.roomWaitingState,
@@ -298,7 +335,10 @@ export function applyGameStateUpdated(
   }
 
   const gameplayParticipants = resolveGameplayParticipants(state, event.gameRoomId);
-  const mergedGameState = mergeGameState(state.game.gameState, event.gameState);
+  const eventGameState = event.mode
+    ? { ...event.gameState, mode: event.mode }
+    : event.gameState;
+  const mergedGameState = mergeGameState(state.game.gameState, eventGameState);
   const mergedMissionState = mergeMissionState(state, event.missionState);
   const previousTurnId = state.game.gameState?.turnState?.turnId;
   const nextTurnId = mergedGameState.turnState?.turnId;

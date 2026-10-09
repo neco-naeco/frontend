@@ -1,5 +1,6 @@
 import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "react-router-dom";
 import type { ReactNode } from "react";
 import { useAppStore, useAppStoreApi } from "../../app/providers/ClientStateProvider";
 import { aiChatApi } from "../../features/ai-chat/aiChatApi";
@@ -9,6 +10,7 @@ import {
   buildRoomCreateTemplateConfirmationMessage,
   extractLatestRoomCreateDifficultyForRequest,
   extractLatestMissionTemplateIdForRoom,
+  extractMissionTemplateOptions,
   extractRoomCreateTemplateOptions,
   shouldShowRoomCreateDifficultySelection,
   type RoomCreateDifficulty,
@@ -42,6 +44,7 @@ import type {
   GameRoomStatus,
   RoomWaitingParticipant,
   RoomWaitingState,
+  MissionDifficulty,
 } from "../../shared/types/domain";
 import { getUserFacingErrorMessage } from "../../shared/utils/appError";
 import {
@@ -782,6 +785,202 @@ function RoomCreateTemplateSelector({
   );
 }
 
+type PracticeSelection = {
+  difficulty: MissionDifficulty;
+  missionTemplateId: string;
+};
+
+type PracticeRouteState = {
+  practice?: {
+    action: "select" | "restart";
+    selection?: PracticeSelection;
+  };
+};
+
+function PracticeEntry({
+  initialRequest,
+  loadTemplates,
+  recoverActiveRoom,
+  onCreated,
+}: {
+  initialRequest: PracticeRouteState["practice"] | undefined;
+  loadTemplates: (difficulty: MissionDifficulty) => Promise<RoomCreateTemplateOption[]>;
+  recoverActiveRoom: () => Promise<boolean>;
+  onCreated: () => Promise<void>;
+}) {
+  const [stage, setStage] = useState<"idle" | "difficulty" | "mission">(
+    initialRequest?.action === "select" ? "difficulty" : "idle",
+  );
+  const [difficulty, setDifficulty] = useState<MissionDifficulty | null>(
+    initialRequest?.selection?.difficulty ?? null,
+  );
+  const [templates, setTemplates] = useState<RoomCreateTemplateOption[]>([]);
+  const [isTemplateLoading, setIsTemplateLoading] = useState(false);
+  const [templateErrorMessage, setTemplateErrorMessage] = useState<string | null>(null);
+  const [status, setStatus] = useState<"idle" | "waiting" | "error">("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const initialRequestHandled = useRef(false);
+
+  const practiceMutation = useMutation({
+    mutationFn: (selection: PracticeSelection) => gameRoomApi.createPracticeRoom(selection),
+    async onSuccess(response) {
+      if (!response.success) {
+        setStatus("error");
+        setErrorMessage("개인 연습방 생성이 접수되지 않았어요. 다시 시도해주세요.");
+        return;
+      }
+
+      setStatus("waiting");
+      setErrorMessage(null);
+      await onCreated();
+    },
+    async onError(error) {
+      if (await recoverActiveRoom()) {
+        setStatus("waiting");
+        setErrorMessage(null);
+        return;
+      }
+
+      setStatus("error");
+      setErrorMessage(
+        getUserFacingErrorMessage(
+          error,
+          "개인 연습방을 만들지 못했어요. 이미 진행 중인 방이 있는지 확인해주세요.",
+        ),
+      );
+    },
+  });
+
+  const createPractice = async (selection: PracticeSelection) => {
+    if (practiceMutation.isPending || status === "waiting") return;
+    if (await recoverActiveRoom()) {
+      setStatus("waiting");
+      setErrorMessage(null);
+      return;
+    }
+
+    setDifficulty(selection.difficulty);
+    setStatus("idle");
+    setErrorMessage(null);
+    practiceMutation.mutate(selection);
+  };
+
+  const fetchTemplates = async (selectedDifficulty: MissionDifficulty) => {
+    setDifficulty(selectedDifficulty);
+    setTemplates([]);
+    setTemplateErrorMessage(null);
+    setIsTemplateLoading(true);
+
+    try {
+      setTemplates(await loadTemplates(selectedDifficulty));
+    } catch (error) {
+      setTemplateErrorMessage(
+        getUserFacingErrorMessage(error, "미션 목록을 불러오지 못했어요."),
+      );
+    } finally {
+      setIsTemplateLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (initialRequestHandled.current || !initialRequest) {
+      return;
+    }
+
+    initialRequestHandled.current = true;
+    if (initialRequest.action === "select") {
+      setStage("difficulty");
+      return;
+    }
+
+    if (initialRequest.selection) {
+      void createPractice(initialRequest.selection);
+    }
+  }, [initialRequest]);
+
+  return (
+    <AssistantMessage>
+      <p className="main-chat-shell__waiting-badge">개인 연습</p>
+      {stage === "idle" && status !== "waiting" ? (
+        <>
+          <p>혼자 미션을 선택해 바로 연습할 수 있어요.</p>
+          <button
+            type="button"
+            className="main-chat-shell__retry"
+            onClick={() => setStage("difficulty")}
+          >
+            개인 연습 시작
+          </button>
+        </>
+      ) : null}
+
+      {stage === "difficulty" && status !== "waiting" ? (
+        <RoomCreateDifficultySelector
+          disabled={practiceMutation.isPending}
+          onSelect={(selectedDifficulty) => {
+            setStage("mission");
+            void fetchTemplates(selectedDifficulty);
+          }}
+        />
+      ) : null}
+
+      {stage === "mission" && difficulty && status !== "waiting" ? (
+        <>
+          <p>{getDifficultyLabel(difficulty)} 난이도의 미션을 선택해주세요.</p>
+          {isTemplateLoading ? (
+            <p role="status">미션 목록을 불러오는 중입니다.</p>
+          ) : templateErrorMessage ? (
+            <>
+              <p className="main-chat-shell__warning" role="alert">
+                {templateErrorMessage}
+              </p>
+              <button
+                type="button"
+                className="main-chat-shell__retry"
+                onClick={() => void fetchTemplates(difficulty)}
+              >
+                다시 시도
+              </button>
+            </>
+          ) : templates.length > 0 ? (
+            <div className="main-selection-grid">
+              {templates.map((template) => (
+                <button
+                  className="main-selection-card"
+                  disabled={practiceMutation.isPending}
+                  key={template.templateId}
+                  type="button"
+                  onClick={() =>
+                    void createPractice({
+                      difficulty,
+                      missionTemplateId: template.templateId,
+                    })
+                  }
+                >
+                  <strong>{template.title}</strong>
+                  <span>{template.description}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p role="status">이 난이도에 선택 가능한 미션이 아직 없어요.</p>
+          )}
+          <button type="button" className="main-chat-shell__retry" onClick={() => setStage("difficulty")}>
+            난이도 다시 선택
+          </button>
+        </>
+      ) : null}
+
+      {status === "waiting" ? (
+        <p role="status">연습방을 만들었어요. 게임 시작 신호를 기다리는 중입니다.</p>
+      ) : null}
+      {status === "error" && errorMessage ? (
+        <p className="main-chat-shell__warning" role="alert">{errorMessage}</p>
+      ) : null}
+    </AssistantMessage>
+  );
+}
+
 function WaitingRoomModeNotice({ room }: { room: CurrentGameRoom }) {
   return (
     <AssistantMessage timestamp={room.updatedAt}>
@@ -798,6 +997,16 @@ function InProgressRoomModeNotice({ room }: { room: CurrentGameRoom }) {
       <p className="main-chat-shell__waiting-badge">게임 진행 중</p>
       <p>이미 시작된 게임방이 있어요.</p>
       <p>실시간 연결을 준비한 뒤 게임 화면으로 이어갈 수 있어요.</p>
+    </AssistantMessage>
+  );
+}
+
+function PracticeWaitingNotice() {
+  return (
+    <AssistantMessage>
+      <p className="main-chat-shell__waiting-badge">개인 연습 준비 중</p>
+      <p>연습방의 게임 시작 신호를 기다리고 있어요.</p>
+      <p>신호를 받은 뒤에만 게임 화면으로 이동합니다.</p>
     </AssistantMessage>
   );
 }
@@ -883,6 +1092,10 @@ function MainReadyState({
   onRetryAiChatMessages,
   onRetryCurrentRoom,
   onRetryInvitations,
+  practiceRouteState,
+  onLoadPracticeTemplates,
+  onRecoverActiveRoom,
+  onPracticeCreated,
 }: {
   nickname: string;
   currentRoom: CurrentGameRoom | null;
@@ -935,9 +1148,16 @@ function MainReadyState({
   onRetryAiChatMessages: () => void;
   onRetryCurrentRoom: () => void;
   onRetryInvitations: () => void;
+  practiceRouteState: PracticeRouteState["practice"] | undefined;
+  onLoadPracticeTemplates: (
+    difficulty: MissionDifficulty,
+  ) => Promise<RoomCreateTemplateOption[]>;
+  onRecoverActiveRoom: () => Promise<boolean>;
+  onPracticeCreated: () => Promise<void>;
 }) {
   const hasCurrentRoom = Boolean(currentRoom);
   const hasInvitations = invitations.length > 0;
+  const isPracticeRoom = currentRoom?.mode === "PRACTICE";
 
   return (
     <div className="main-chat-shell">
@@ -969,6 +1189,15 @@ function MainReadyState({
           </AssistantMessage>
         ) : null}
 
+        {!hasCurrentRoom ? (
+          <PracticeEntry
+            initialRequest={practiceRouteState}
+            loadTemplates={onLoadPracticeTemplates}
+            recoverActiveRoom={onRecoverActiveRoom}
+            onCreated={onPracticeCreated}
+          />
+        ) : null}
+
         {duplicateRoomWarning ? (
           <AssistantMessage timestamp={currentRoom?.updatedAt}>
             <p className="main-chat-shell__warning">
@@ -977,7 +1206,9 @@ function MainReadyState({
           </AssistantMessage>
         ) : null}
 
-        {currentRoom?.status === "WAITING" ? <WaitingRoomModeNotice room={currentRoom} /> : null}
+        {currentRoom?.status === "WAITING" ? (
+          isPracticeRoom ? <PracticeWaitingNotice /> : <WaitingRoomModeNotice room={currentRoom} />
+        ) : null}
 
         {currentRoom?.status === "IN_PROGRESS" ? (
           <InProgressRoomModeNotice room={currentRoom} />
@@ -992,6 +1223,7 @@ function MainReadyState({
         ) : null}
 
         {currentRoom &&
+        !isPracticeRoom &&
         isMainPageRoomContextStatus(currentRoom.status) &&
         (isWaitingRoomLoading || roomWaitingState) ? (
           <AssistantMessage timestamp={currentRoom.updatedAt}>
@@ -1232,6 +1464,8 @@ function buildWaitingRoomTransitionCurrentRoom({
 export function MainPage() {
   const store = useAppStoreApi();
   const queryClient = useQueryClient();
+  const location = useLocation();
+  const practiceRouteState = (location.state as PracticeRouteState | null)?.practice;
   const user = useAppStore((state) => state.auth.user);
   const aiChatState = useAppStore((state) => state.aiChat);
   const storedRoomWaitingState = useAppStore((state) => state.room.roomWaitingState);
@@ -1252,6 +1486,7 @@ export function MainPage() {
   const [startButtonNotice, setStartButtonNotice] = useState<string | null>(null);
   const [isStartRequestAccepted, setIsStartRequestAccepted] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isPracticeEntryRequested, setIsPracticeEntryRequested] = useState(false);
   const [mockInstanceId] = useState(
     () => `main-page-mock-${Math.random().toString(36).slice(2, 10)}`,
   );
@@ -1819,6 +2054,41 @@ export function MainPage() {
     }
   }
 
+  async function loadPracticeTemplates(difficulty: MissionDifficulty) {
+    if (!activeSessionId) {
+      throw new Error("미션 목록을 불러올 AI 채팅 세션이 준비되지 않았어요.");
+    }
+
+    const response = await (mainPageMockApi?.sendMessage ?? aiChatApi.sendMessage)(
+      activeSessionId,
+      { message: buildRoomCreateDifficultyMessage(difficulty) },
+    );
+
+    return extractMissionTemplateOptions(
+      response.assistantMessage?.metadata,
+      difficulty,
+    );
+  }
+
+  async function recoverActiveRoom() {
+    const result = await currentRoomQuery.refetch();
+    return Boolean(result.data?.currentRoom);
+  }
+
+  async function reconcilePracticeRoomAfterCreate() {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (await recoverActiveRoom()) {
+        return;
+      }
+
+      if (attempt < 2) {
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, 250);
+        });
+      }
+    }
+  }
+
   function handleComposerChange(event: ChangeEvent<HTMLInputElement>) {
     setComposerValue(event.currentTarget.value);
     setSendErrorMessage(null);
@@ -1998,6 +2268,19 @@ export function MainPage() {
           </span>
 
           <div className="main-screen__topbar-actions">
+            <button
+              type="button"
+              className="main-practice-entry"
+              disabled={Boolean(mainPageDisplayCurrentRoom)}
+              title={
+                mainPageDisplayCurrentRoom
+                  ? "현재 참여 중인 방을 종료한 뒤 개인 연습을 시작할 수 있어요."
+                  : "개인 연습 시작"
+              }
+              onClick={() => setIsPracticeEntryRequested(true)}
+            >
+              개인 연습 시작
+            </button>
             <div className="main-user-menu" ref={userMenuRef}>
               <button
                 type="button"
@@ -2126,6 +2409,19 @@ export function MainPage() {
               }}
               onRetryInvitations={() => {
                 void invitationQuery.refetch();
+              }}
+              practiceRouteState={
+                isPracticeEntryRequested
+                  ? { action: "select" }
+                  : practiceRouteState
+              }
+              onLoadPracticeTemplates={loadPracticeTemplates}
+              onRecoverActiveRoom={recoverActiveRoom}
+              onPracticeCreated={async () => {
+                await Promise.all([
+                  reconcilePracticeRoomAfterCreate(),
+                  invitationQuery.refetch(),
+                ]);
               }}
             />
           ) : null}

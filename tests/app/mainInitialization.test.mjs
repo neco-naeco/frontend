@@ -260,6 +260,33 @@ test("createGameRoomApi passes missionTemplateId through to the start-game reque
   ]);
 });
 
+test("createGameRoomApi creates a practice room with the selected mission", async () => {
+  const calls = [];
+  const api = createGameRoomApi({
+    async get() {
+      throw new Error("getCurrentRooms should not be called in this test");
+    },
+    async post(path, body, options) {
+      calls.push({ path, body, options });
+      return { success: true };
+    },
+  });
+
+  const result = await api.createPracticeRoom({
+    difficulty: "HARD",
+    missionTemplateId: "template-hard-01",
+  });
+
+  assert.deepEqual(result, { success: true });
+  assert.deepEqual(calls, [
+    {
+      path: "/practice-rooms",
+      body: { difficulty: "HARD", missionTemplateId: "template-hard-01" },
+      options: undefined,
+    },
+  ]);
+});
+
 test("createInvitationApi requests only invited participants for the signed-in user", async () => {
   const calls = [];
   const api = createInvitationApi({
