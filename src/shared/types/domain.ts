@@ -1,3 +1,4 @@
+import type { GameItemState } from "./gameItems";
 export type AiChatSessionStatus = "ACTIVE" | "CLOSED" | "ERROR";
 
 export type AiChatRequestType =
@@ -213,6 +214,7 @@ export type RoomWaitingParticipant = {
 };
 
 export type GameState = {
+  items?: GameItemState[];
   status: GameRoomStatus;
   mode?: GameRoomMode;
   difficulty?: MissionDifficulty;

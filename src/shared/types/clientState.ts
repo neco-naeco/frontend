@@ -1,3 +1,4 @@
+import type { ItemUseState } from "./gameItems";
 import type {
   AiChatCommandResult,
   AiChatMessage,
@@ -44,6 +45,7 @@ export type RoomClientState = {
 };
 
 export type GameClientState = {
+  itemUse?: ItemUseState;
   gameState: GameState | null;
   missionState: MissionState | null;
   showMissionGuideModal: boolean;

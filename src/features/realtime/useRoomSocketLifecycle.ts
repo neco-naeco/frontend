@@ -7,10 +7,9 @@ import {
   createRoomSocketLifecycleInput,
   createStoreBackedRoomSocketLifecycleController,
   shouldRetainRoomSocketForPath,
-  type RoomSocketLifecycleController,
 } from "./roomSocketLifecycle";
 
-let roomSocketLifecycleController: RoomSocketLifecycleController | null = null;
+let roomSocketLifecycleController: ReturnType<typeof createStoreBackedRoomSocketLifecycleController> | null = null;
 
 export function getRoomSocketLifecycleController() {
   return roomSocketLifecycleController;

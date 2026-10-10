@@ -1534,3 +1534,44 @@
     margin-right: 12px;
   }
 }
+
+.game-item-bar {
+  margin: 0 28px 12px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  border: 1px solid #dce5d7;
+  border-radius: 8px;
+  background: #fff;
+}
+.game-item-button, .game-item-sync {
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid #3f6f2c;
+  border-radius: 6px;
+  background: #3f6f2c;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.game-item-sync { background: #fff; color: #3f6f2c; }
+.game-item-button:disabled, .game-item-sync:disabled {
+  background: #edf0e9;
+  border-color: #cbd3c5;
+  color: #586350;
+  cursor: not-allowed;
+}
+.game-item-button:focus-visible, .game-item-sync:focus-visible {
+  outline: 3px solid #315b21;
+  outline-offset: 3px;
+}
+.game-item-copy { flex: 1; min-width: 180px; display: grid; gap: 3px; overflow-wrap: anywhere; }
+.game-item-copy strong { font-size: 13px; }
+.game-item-copy span { font-size: 12px; color: #526249; }
+.game-item-copy span:empty { display: none; }
+@media (max-width: 600px) {
+  .game-item-bar { margin-inline: 12px; padding: 12px; }
+}
