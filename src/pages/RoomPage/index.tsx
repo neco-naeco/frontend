@@ -1,3 +1,4 @@
+import { itemDisabledReason, itemQuantity } from "../../features/game-items/gameItemState";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -22,7 +23,7 @@ import {
   resolveHintCacheKeyFromMission,
   shouldRefetchHintOnOpen,
 } from "../../features/hint/hintCache";
-import { useRoomSocketLifecycle } from "../../features/realtime/useRoomSocketLifecycle";
+import { getRoomSocketLifecycleController, useRoomSocketLifecycle } from "../../features/realtime/useRoomSocketLifecycle";
 import { getUserFacingErrorMessage } from "../../shared/utils/appError";
 import type { TeamChatMessage } from "../../shared/types/domain";
 import backgroundRunImg from "../../assets/characters/background-run.png";
@@ -67,8 +68,6 @@ type AiMasterStep = "analysis" | "feedback" | "error";
 type StartCountdownValue = 5 | 4 | 3 | 2 | 1 | "START";
 const startCountdownSequence: StartCountdownValue[] = [5, 4, 3, 2, 1, "START"];
 const startCountdownStepMs = 1000;
-const startCountdownTimerOffsetMs =
-  startCountdownSequence.length * startCountdownStepMs;
 const submissionStallWarningDelayMs = 10000;
 const emptyEditorFiles: Record<string, string> = {};
 
@@ -150,7 +149,7 @@ export function RoomPage() {
     useState<StartCountdownValue>(5);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const startTimerRef = useRef<number | null>(null);
-  const countdownAdjustedTurnIdRef = useRef<string | null>(null);
+  const itemUse = useAppStore((state) => state.game.itemUse);
 
   const fileTabs = useMemo(
     () => buildMissionFileTabs(missionState, editorFiles),
@@ -183,6 +182,7 @@ export function RoomPage() {
   const isTurnActionLocked = isEditorReadOnly || turnSubmissionPending;
   const isSubmitDisabled =
     turnSubmissionPending ||
+    itemUse?.status === "pending" ||
     isMissionGuideOpen ||
     isRealtimeUnavailable ||
     !canMutateActiveFile;
@@ -201,6 +201,11 @@ export function RoomPage() {
     getMissionDisplayCopy(missionState);
   const missionProgressSteps = buildMissionProgressSteps(missionState);
   const timerText = formatTurnTimerText(remainingSeconds);
+  const quantity = itemQuantity(gameState);
+  const itemReason = itemDisabledReason(store.getState());
+  const canSyncItems = realtimeStatus === "connected" && itemUse?.status !== "pending" && itemUse?.status !== "syncing";
+  const needsItemSync = quantity === undefined || itemUse?.status === "needs-sync";
+
   const hasGameplayData = Boolean(gameState && missionState);
   const currentTurnLabel = getCurrentTurnParticipantLabel(participantRows);
   const evaluationDisplay = getEvaluationDisplayCopy({
@@ -213,10 +218,6 @@ export function RoomPage() {
     missionTemplateStepId: missionState?.missionTemplateStepId,
   });
   const cachedHint = getCachedHint(hintsByStepId, hintCacheKey);
-  const turnTimerOffsetMs =
-    countdownAdjustedTurnIdRef.current === turnState?.turnId
-      ? startCountdownTimerOffsetMs
-      : 0;
 
   const { trackLocalEditorChange, flushPendingCodeChanges } = useGameplayCodeSync({
     gameRoomId,
@@ -228,56 +229,13 @@ export function RoomPage() {
   });
 
   useEffect(() => {
-    if (!turnState?.turnId) {
-      countdownAdjustedTurnIdRef.current = null;
-      return;
-    }
-
-    if (isMissionGuideOpen) {
-      countdownAdjustedTurnIdRef.current = turnState.turnId;
-      return;
-    }
-
-    if (countdownAdjustedTurnIdRef.current !== turnState.turnId) {
-      countdownAdjustedTurnIdRef.current = null;
-    }
-  }, [isMissionGuideOpen, turnState?.turnId]);
-
-  useEffect(() => {
-    if (!turnState?.deadlineAt) {
-      setRemainingSeconds(0);
-      return;
-    }
-
-    if (isMissionGuideOpen) {
-      setRemainingSeconds(
-        turnState.timeLimitSeconds ??
-          computeRemainingSeconds(turnState.deadlineAt, Date.now(), turnTimerOffsetMs),
-      );
-      return;
-    }
-
-    const updateRemainingTime = () => {
-      setRemainingSeconds(
-        computeRemainingSeconds(
-          turnState.deadlineAt,
-          Date.now(),
-          turnTimerOffsetMs,
-        ),
-      );
-    };
-
+    const updateRemainingTime = () => setRemainingSeconds(
+      computeRemainingSeconds(turnState?.deadlineAt, Date.now()),
+    );
     updateRemainingTime();
     const timerId = window.setInterval(updateRemainingTime, 250);
-
     return () => window.clearInterval(timerId);
-  }, [
-    isMissionGuideOpen,
-    turnState?.deadlineAt,
-    turnState?.timeLimitSeconds,
-    turnState?.turnId,
-    turnTimerOffsetMs,
-  ]);
+  }, [turnState?.deadlineAt, turnState?.turnId]);
 
   useEffect(() => {
     if (!turnSubmissionPending || lastTurnEvaluation) {
@@ -498,6 +456,32 @@ export function RoomPage() {
         timerText={timerText}
         turnNumber={turnState?.turnNumber}
       />
+
+      <section className="game-item-bar" aria-label="게임 아이템">
+        <button
+          className="game-item-button"
+          type="button"
+          disabled={!!itemReason || isMissionGuideOpen}
+          aria-label={itemUse?.status === "pending" ? "시간 연장 사용 확인 중" : "시간 30초 연장"}
+          aria-busy={itemUse?.status === "pending"}
+          title="시간 +30초"
+          aria-describedby="game-item-status"
+          onClick={() => getRoomSocketLifecycleController()?.useGameItem()}
+        >
+          <span aria-hidden="true">{itemUse?.status === "pending" ? "⏳" : "⏱️"}</span>
+        </button>
+        <div className="game-item-copy">
+          <strong>{quantity === undefined ? "아이템 수량 확인 필요" : `남은 아이템 ${quantity}개`} · 방 전체 공유</strong>
+          <span id="game-item-status">{itemReason ?? "현재 턴의 제한시간을 30초 늘려요."}</span>
+          <span role="status" aria-live="polite">{itemUse?.message}</span>
+        </div>
+        {needsItemSync ? (
+          <button className="game-item-sync" type="button" disabled={!canSyncItems}
+            onClick={() => getRoomSocketLifecycleController()?.syncGameItems()}>
+            상태 다시 확인
+          </button>
+        ) : null}
+      </section>
 
       {isRealtimeUnavailable ? (
         <RealtimeBanner

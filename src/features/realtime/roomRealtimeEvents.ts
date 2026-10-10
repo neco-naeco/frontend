@@ -1,3 +1,4 @@
+import { applyGameItemUsed, applyGameItemError } from "../game-items/gameItemState";
 import type { StoreApi } from "zustand/vanilla";
 import type { RootClientState } from "../../shared/types/clientState";
 import type {
@@ -156,6 +157,11 @@ export function bindRoomRealtimeEvents(
     });
   }
 
+  const handleItemUsed = (payload: unknown) => store.setState((state) => applyGameItemUsed(state, payload));
+  const handleItemError = (payload: unknown) => store.setState((state) => applyGameItemError(state, payload));
+  socket.on("game-item-used", handleItemUsed);
+  socket.on("game-item-error", handleItemError);
+
   socket.on(ROOM_PARTICIPANTS_UPDATED, handleRoomParticipantsUpdated);
   socket.on(GAME_STARTED, handleGameStarted);
   socket.on(GAME_STATE_UPDATED, handleGameStateUpdated);
@@ -166,6 +172,8 @@ export function bindRoomRealtimeEvents(
   socket.on(TEAM_CHAT_MESSAGE, handleTeamChatMessage);
 
   return () => {
+    socket.off("game-item-used", handleItemUsed);
+    socket.off("game-item-error", handleItemError);
     socket.off(ROOM_PARTICIPANTS_UPDATED, handleRoomParticipantsUpdated);
     socket.off(GAME_STARTED, handleGameStarted);
     socket.off(GAME_STATE_UPDATED, handleGameStateUpdated);

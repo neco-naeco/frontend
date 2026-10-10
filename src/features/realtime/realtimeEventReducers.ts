@@ -1,3 +1,4 @@
+import { mergeItemGameState, snapshotItemUse } from "../game-items/gameItemState";
 import {
   applyAuthoritativeFilesToEditor,
   extractAuthoritativeFilesFromCodeUpdated,
@@ -121,16 +122,7 @@ function resolveGameplayParticipants(
   return waitingRoomParticipants;
 }
 
-function mergeGameState(
-  previous: GameState | null,
-  incoming: GameState,
-): GameState {
-  return {
-    ...previous,
-    ...incoming,
-    turnState: incoming.turnState ?? previous?.turnState,
-  };
-}
+const mergeGameState = mergeItemGameState;
 
 function mergeMissionState(
   state: RootClientState,
@@ -192,9 +184,14 @@ export function applyRoomParticipantsUpdated(
     return state;
   }
 
+  if (state.game.gameState?.status === "FINISHED" && event.gameState.status !== "FINISHED") return state;
+  if (state.game.gameState && state.game.gameState.status !== "WAITING" && event.gameState.status === "WAITING") return state;
+  if ((event.gameState.turnState?.turnNumber ?? Infinity) < (state.game.gameState?.turnState?.turnNumber ?? 0)) return state;
+
   const nextGame = {
     ...state.game,
-    gameState: event.gameState,
+    itemUse: snapshotItemUse(state, event.gameState),
+    gameState: mergeGameState(state.game.gameState, event.gameState),
     missionState: event.missionState,
   };
   const nextRealtime = {
@@ -212,7 +209,7 @@ export function applyRoomParticipantsUpdated(
 
   const currentRoom = mergeCurrentRoomFromGameState(
     state.room.currentRoom,
-    event.gameState,
+    nextGame.gameState,
     event.participants,
   );
 
@@ -225,7 +222,7 @@ export function applyRoomParticipantsUpdated(
       currentRoom,
       roomWaitingState: buildRoomWaitingStateFromParticipantsEvent(
         currentRoom,
-        event,
+        { ...event, gameState: nextGame.gameState },
       ),
     },
   };
@@ -242,11 +239,16 @@ export function applyRoomParticipantsUpdatedWithNavigation(
 ): ApplyRoomParticipantsUpdatedResult {
   const updatedState = applyRoomParticipantsUpdated(state, event);
 
-  if (event.gameState.status !== "IN_PROGRESS" || !event.missionState) {
+  if (updatedState.game.gameState?.status !== "IN_PROGRESS" || !event.missionState) {
     return { state: updatedState, navigationTarget: null };
   }
 
-  return applyGameStarted(updatedState, {
+  if (state.game.missionState && state.game.gameState?.status === "IN_PROGRESS") {
+    const synchronized = applyGameStateUpdated(state, event);
+    return { state: applyRoomParticipantsUpdated(synchronized, event), navigationTarget: null };
+  }
+
+  return applyGameStarted({ ...updatedState, game: state.game }, {
     gameRoomId: event.gameRoomId,
     ...(event.gameState.mode ? { mode: event.gameState.mode } : {}),
     gameState: event.gameState,
@@ -267,6 +269,11 @@ export function applyGameStarted(
     return { state, navigationTarget: null };
   }
 
+  if (state.game.gameState?.status === "FINISHED") return { state, navigationTarget: null };
+  if (state.game.gameState?.status === "IN_PROGRESS" && state.game.missionState) {
+    return { state: applyGameStateUpdated(state, event), navigationTarget: event.uiHints.enterGameScreen ? `/rooms/${event.gameRoomId}/play` : null };
+  }
+
   const gameplayParticipants = resolveGameplayParticipants(state, event.gameRoomId);
   const eventGameState = event.mode
     ? { ...event.gameState, mode: event.mode }
@@ -276,7 +283,8 @@ export function applyGameStarted(
   let nextState: RootClientState = {
     ...state,
     game: {
-      gameState: eventGameState,
+      gameState: mergeGameState(state.game.gameState, eventGameState),
+      itemUse: snapshotItemUse(state, eventGameState),
       missionState: event.missionState,
       showMissionGuideModal: event.uiHints.showMissionGuideModal,
       lastTurnEvaluation: null,
@@ -334,6 +342,10 @@ export function applyGameStateUpdated(
     return state;
   }
 
+  if (state.game.gameState?.status === "FINISHED" && event.gameState.status !== "FINISHED") return state;
+  if (state.game.gameState && state.game.gameState.status !== "WAITING" && event.gameState.status === "WAITING") return state;
+  if ((event.gameState.turnState?.turnNumber ?? Infinity) < (state.game.gameState?.turnState?.turnNumber ?? 0)) return state;
+
   const gameplayParticipants = resolveGameplayParticipants(state, event.gameRoomId);
   const eventGameState = event.mode
     ? { ...event.gameState, mode: event.mode }
@@ -358,6 +370,7 @@ export function applyGameStateUpdated(
     game: {
       ...state.game,
       gameState: mergedGameState,
+      itemUse: snapshotItemUse(state, eventGameState),
       missionState: mergedMissionState,
     },
     editor:
@@ -557,7 +570,8 @@ export function applyTurnChanged(
   }
 
   const nextTurnState = buildTurnChangedTurnState(state, event);
-  if (!nextTurnState?.turnId) {
+  if (!nextTurnState?.turnId || state.game.gameState?.status === "FINISHED" ||
+      nextTurnState.turnNumber < (state.game.gameState?.turnState?.turnNumber ?? 0)) {
     return state;
   }
 
@@ -571,10 +585,10 @@ export function applyTurnChanged(
           ...event.missionState,
         };
   const mergedGameState = state.game.gameState
-    ? {
+    ? mergeGameState(state.game.gameState, {
         ...state.game.gameState,
         turnState: nextTurnState,
-      }
+      })
     : null;
 
   const editorWithSnapshot = applyAuthoritativeFilesToEditor(

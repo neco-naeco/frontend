@@ -1,3 +1,4 @@
+import { createGameItemActions } from "../game-items/gameItemState";
 import { createInitialState } from "../../app/store/clientState";
 import type { StoreApi } from "zustand/vanilla";
 import type {
@@ -217,6 +218,7 @@ export function createRoomSocketLifecycleController({
     }
 
     if (socket && activeRoomId === eligibility.joinRoomEvent.gameRoomId) {
+      joinRoomEvent = eligibility.joinRoomEvent;
       return eligibility;
     }
 
@@ -249,6 +251,7 @@ export function createRoomSocketLifecycleController({
         return;
       }
 
+      onSocketReleased?.();
       socket = null;
       terminatedRoomId = activeRoomId;
       const parsedClose = parseSocketDisconnectClose(reason);
@@ -262,6 +265,7 @@ export function createRoomSocketLifecycleController({
         return;
       }
 
+      onSocketReleased?.();
       socket = null;
       update("error", null, null, null);
     });
@@ -295,6 +299,7 @@ export function createRoomSocketLifecycleController({
 
   return {
     emit,
+    resync: () => !!joinRoomEvent && emit("join-room", joinRoomEvent),
     leave,
     sync,
   };
@@ -310,7 +315,7 @@ export function createStoreBackedRoomSocketLifecycleController(
 ) {
   let unbindRoomRealtimeEvents: (() => void) | null = null;
 
-  return createRoomSocketLifecycleController({
+  const controller = createRoomSocketLifecycleController({
     createSocket(options) {
       unbindRoomRealtimeEvents?.();
       const socket = createSocket(options);
@@ -318,6 +323,7 @@ export function createStoreBackedRoomSocketLifecycleController(
       return socket;
     },
     onSocketReleased() {
+      items.dispose();
       unbindRoomRealtimeEvents?.();
       unbindRoomRealtimeEvents = null;
     },
@@ -328,7 +334,9 @@ export function createStoreBackedRoomSocketLifecycleController(
         const initial = enteringRoom ? createInitialState() : null;
         return {
           ...state,
-          game: initial ? initial.game : state.game,
+          game: initial ? initial.game : update.connectionStatus !== "connected"
+            ? { ...state.game, itemUse: { status: "needs-sync" as const, pending: null, message: "서버 상태를 다시 확인해주세요." } }
+            : state.game,
           editor: initial ? initial.editor : state.editor,
           realtime: {
             ...state.realtime,
@@ -343,6 +351,8 @@ export function createStoreBackedRoomSocketLifecycleController(
       });
     },
   });
+  const items = createGameItemActions(store, controller.emit, controller.resync);
+  return { ...controller, useGameItem: items.useGameItem, syncGameItems: items.syncGameItems };
 }
 
 export function createRoomSocketLifecycleInput({
