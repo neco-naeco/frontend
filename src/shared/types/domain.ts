@@ -3,6 +3,7 @@ export type AiChatSessionStatus = "ACTIVE" | "CLOSED" | "ERROR";
 
 export type AiChatRequestType =
   | "ROOM_CREATE"
+  | "ROOM_DELETE"
   | "USER_INVITE"
   | "ROOM_JOIN"
   | "USER_INVITE_DENY"
