@@ -1158,26 +1158,46 @@ function MainReadyState({
   const hasCurrentRoom = Boolean(currentRoom);
   const hasInvitations = invitations.length > 0;
   const isPracticeRoom = currentRoom?.mode === "PRACTICE";
+  const chatBodyRef = useRef<HTMLDivElement | null>(null);
+  const latestMessageId = aiMessages[aiMessages.length - 1]?.messageId ?? null;
+
+  useEffect(() => {
+    const chatBody = chatBodyRef.current;
+    if (!chatBody || (!latestMessageId && !isAiChatSendPending)) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      chatBody.scrollTo({
+        top: chatBody.scrollHeight,
+        behavior: "smooth",
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [isAiChatSendPending, latestMessageId]);
 
   return (
     <div className="main-chat-shell">
-      <div className="main-chat-shell__body">
+      <div className="main-chat-shell__body" ref={chatBodyRef}>
         {mockScenario ? (
           <MainMockModeNotice scenario={mockScenario} onReset={onResetMockScenario} />
         ) : null}
 
         {isAiChatLoading ? <MainChatLoadingBubbles /> : null}
 
-        {aiMessages.length > 0
-          ? aiMessages.map((message) => (
+        {aiMessages.length > 0 || isAiChatSendPending ? (
+          <div className="main-chat-shell__history" aria-live="polite">
+            {aiMessages.map((message) => (
               <ChatHistoryMessage key={message.messageId} message={message} />
-            ))
-          : null}
+            ))}
 
-        {isAiChatSendPending ? (
-          <AssistantMessage>
-            <p>AI 마스터가 답변을 준비하고 있어요.</p>
-          </AssistantMessage>
+            {isAiChatSendPending ? (
+              <AssistantMessage>
+                <p>AI 마스터가 답변을 준비하고 있어요.</p>
+              </AssistantMessage>
+            ) : null}
+          </div>
         ) : null}
 
         {shouldShowEmptyPrompt ? (
@@ -1886,7 +1906,9 @@ export function MainPage() {
     },
     async onSuccess(response, variables) {
       if (
-        (response.requestType === "ROOM_CREATE" || response.requestType === "ROOM_JOIN") &&
+        (response.requestType === "ROOM_CREATE" ||
+          response.requestType === "ROOM_JOIN" ||
+          response.requestType === "ROOM_DELETE") &&
         response.commandResult?.status === "SUCCESS"
       ) {
         await queryClient.cancelQueries({
@@ -1908,6 +1930,24 @@ export function MainPage() {
           response,
         }),
       }));
+
+      if (
+        response.requestType === "ROOM_DELETE" &&
+        response.commandResult?.status === "SUCCESS"
+      ) {
+        setWaitingRoomTransition(null);
+        setStartButtonNotice(null);
+        setIsStartRequestAccepted(false);
+        store.setState((state) => ({
+          ...state,
+          room: {
+            ...state.room,
+            currentRoom: null,
+            duplicateRoomWarning: false,
+            roomWaitingState: null,
+          },
+        }));
+      }
 
       const storedInvitations = store.getState().room.invitations;
       const completedInvitationIds = resolveCompletedInvitationIds({

@@ -55,6 +55,7 @@ export function derivePendingAiChatCommand(
 
   switch (response.requestType) {
     case "ROOM_CREATE":
+    case "ROOM_DELETE":
     case "USER_INVITE":
     case "ROOM_JOIN":
     case "USER_INVITE_DENY":

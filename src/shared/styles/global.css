@@ -623,6 +623,12 @@ select {
   padding-right: 10px;
 }
 
+.main-chat-shell__history {
+  order: 1;
+  display: grid;
+  gap: 24px;
+}
+
 .main-chat-shell__composer {
   position: sticky;
   bottom: 0;
