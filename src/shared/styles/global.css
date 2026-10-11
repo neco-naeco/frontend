@@ -623,8 +623,36 @@ select {
   padding-right: 10px;
 }
 
+.main-ranking-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid #dfd6b9;
+  border-radius: 999px;
+  background: #fffaf0;
+  color: #725f2f;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.main-ranking-entry:hover {
+  background: #f7efd8;
+}
+
+.main-ranking-entry:focus-visible {
+  outline: 3px solid #8b793f;
+  outline-offset: 2px;
+}
+
+.main-ranking-entry:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .main-chat-shell__history {
-  order: 1;
   display: grid;
   gap: 24px;
 }

@@ -1,6 +1,6 @@
 import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import type { ReactNode } from "react";
 import { useAppStore, useAppStoreApi } from "../../app/providers/ClientStateProvider";
 import { aiChatApi } from "../../features/ai-chat/aiChatApi";
@@ -1160,22 +1160,41 @@ function MainReadyState({
   const isPracticeRoom = currentRoom?.mode === "PRACTICE";
   const chatBodyRef = useRef<HTMLDivElement | null>(null);
   const latestMessageId = aiMessages[aiMessages.length - 1]?.messageId ?? null;
+  const currentRoomScrollKey = currentRoom
+    ? `${currentRoom.gameRoomId}:${currentRoom.status}:${currentRoom.updatedAt}`
+    : null;
+  const waitingRoomScrollKey = roomWaitingState
+    ? `${roomWaitingState.currentRoom.gameRoomId}:${roomWaitingState.participants.length}`
+    : null;
 
   useEffect(() => {
     const chatBody = chatBodyRef.current;
-    if (!chatBody || (!latestMessageId && !isAiChatSendPending)) {
+    if (
+      !chatBody ||
+      (!latestMessageId &&
+        !isAiChatSendPending &&
+        !currentRoomScrollKey &&
+        !waitingRoomScrollKey &&
+        !practiceRouteState)
+    ) {
       return;
     }
 
     const frameId = window.requestAnimationFrame(() => {
       chatBody.scrollTo({
         top: chatBody.scrollHeight,
-        behavior: "smooth",
+        behavior: "auto",
       });
     });
 
     return () => window.cancelAnimationFrame(frameId);
-  }, [isAiChatSendPending, latestMessageId]);
+  }, [
+    currentRoomScrollKey,
+    isAiChatSendPending,
+    latestMessageId,
+    practiceRouteState,
+    waitingRoomScrollKey,
+  ]);
 
   return (
     <div className="main-chat-shell">
@@ -1209,7 +1228,7 @@ function MainReadyState({
           </AssistantMessage>
         ) : null}
 
-        {!hasCurrentRoom ? (
+        {!hasCurrentRoom && practiceRouteState ? (
           <PracticeEntry
             initialRequest={practiceRouteState}
             loadTemplates={onLoadPracticeTemplates}
@@ -1485,6 +1504,7 @@ export function MainPage() {
   const store = useAppStoreApi();
   const queryClient = useQueryClient();
   const location = useLocation();
+  const navigate = useNavigate();
   const practiceRouteState = (location.state as PracticeRouteState | null)?.practice;
   const user = useAppStore((state) => state.auth.user);
   const aiChatState = useAppStore((state) => state.aiChat);
@@ -2310,6 +2330,20 @@ export function MainPage() {
           <div className="main-screen__topbar-actions">
             <button
               type="button"
+              className="main-ranking-entry"
+              disabled={Boolean(mainPageDisplayCurrentRoom)}
+              title={
+                mainPageDisplayCurrentRoom
+                  ? "현재 참여 중인 방을 종료한 뒤 랭킹을 확인할 수 있어요."
+                  : "랭킹 보기"
+              }
+              onClick={() => navigate("/ranking")}
+            >
+              <span aria-hidden="true">🏆</span>
+              <span>랭킹</span>
+            </button>
+            <button
+              type="button"
               className="main-practice-entry"
               disabled={Boolean(mainPageDisplayCurrentRoom)}
               title={
@@ -2458,10 +2492,14 @@ export function MainPage() {
               onLoadPracticeTemplates={loadPracticeTemplates}
               onRecoverActiveRoom={recoverActiveRoom}
               onPracticeCreated={async () => {
-                await Promise.all([
-                  reconcilePracticeRoomAfterCreate(),
-                  invitationQuery.refetch(),
-                ]);
+                try {
+                  await Promise.all([
+                    reconcilePracticeRoomAfterCreate(),
+                    invitationQuery.refetch(),
+                  ]);
+                } finally {
+                  setIsPracticeEntryRequested(false);
+                }
               }}
             />
           ) : null}

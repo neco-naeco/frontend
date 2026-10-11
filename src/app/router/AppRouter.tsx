@@ -7,6 +7,7 @@ import { SignupPage } from "../../pages/SignupPage";
 import { MainPage } from "../../pages/MainPage";
 import { RoomPage } from "../../pages/RoomPage";
 import { ResultPage } from "../../pages/ResultPage";
+import { RankingPage } from "../../pages/RankingPage";
 import { NotFoundPage } from "../../pages/NotFoundPage";
 import {
   getGuestRouteRedirectPath,
@@ -85,6 +86,14 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <MainPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/ranking",
+    element: (
+      <ProtectedRoute>
+        <RankingPage />
       </ProtectedRoute>
     ),
   },
