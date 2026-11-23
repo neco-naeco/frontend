@@ -1611,6 +1611,14 @@ function ChatPanel() {
   const isLoading = useAppStore((state) => state.teamChat.isLoading);
   const isSending = useAppStore((state) => state.teamChat.isSending);
   const [draft, setDraft] = useState("");
+  const messagesRef = useRef<HTMLDivElement | null>(null);
+  const lastMessageId = messages[messages.length - 1]?.messageId ?? null;
+
+  useEffect(() => {
+    const container = messagesRef.current;
+    if (!container || !lastMessageId) return;
+    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+  }, [lastMessageId]);
 
   useEffect(() => {
     if (!gameRoomId) return;
@@ -1679,7 +1687,7 @@ function ChatPanel() {
     <section className="panel chat-card">
       <h3>팀 채팅 ⧉</h3>
       <p>팀원들과 실시간으로 대화할 수 있습니다.</p>
-      <div className="messages" aria-label="팀 채팅 메시지">
+      <div className="messages" aria-label="팀 채팅 메시지" ref={messagesRef}>
         {isLoading ? <p>메시지를 불러오는 중입니다.</p> : null}
         {!isLoading && messages.length === 0 ? <p>첫 메시지를 남겨보세요.</p> : null}
         {messages.map((message: TeamChatMessage) => (
