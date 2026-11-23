@@ -24,6 +24,7 @@ import { submitTurn } from "../../features/game-turn/submitTurn";
 import { gameRoomApi } from "../../features/game-room/gameRoomApi";
 import { listTeamChatMessages } from "../../features/team-chat/teamChatApi";
 import { emitTeamChatMessage } from "../../features/realtime/emitGameplayRealtimeEvent";
+import { createUuid } from "../../shared/utils/createUuid";
 import { hintApi } from "../../features/hint/hintApi";
 import {
   formatHintDisplayText,
@@ -1610,6 +1611,14 @@ function ChatPanel() {
   const isLoading = useAppStore((state) => state.teamChat.isLoading);
   const isSending = useAppStore((state) => state.teamChat.isSending);
   const [draft, setDraft] = useState("");
+  const messagesRef = useRef<HTMLDivElement | null>(null);
+  const lastMessageId = messages[messages.length - 1]?.messageId ?? null;
+
+  useEffect(() => {
+    const container = messagesRef.current;
+    if (!container || !lastMessageId) return;
+    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+  }, [lastMessageId]);
 
   useEffect(() => {
     if (!gameRoomId) return;
@@ -1653,10 +1662,7 @@ function ChatPanel() {
   const sendMessage = () => {
     const content = draft.trim();
     if (!gameRoomId || !content || isSending || content.length > 500) return;
-    const clientMessageId =
-      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const clientMessageId = createUuid();
     store.setState((state) => ({
       ...state,
       teamChat: { ...state.teamChat, isSending: true },
@@ -1681,7 +1687,7 @@ function ChatPanel() {
     <section className="panel chat-card">
       <h3>팀 채팅 ⧉</h3>
       <p>팀원들과 실시간으로 대화할 수 있습니다.</p>
-      <div className="messages" aria-label="팀 채팅 메시지">
+      <div className="messages" aria-label="팀 채팅 메시지" ref={messagesRef}>
         {isLoading ? <p>메시지를 불러오는 중입니다.</p> : null}
         {!isLoading && messages.length === 0 ? <p>첫 메시지를 남겨보세요.</p> : null}
         {messages.map((message: TeamChatMessage) => (
