@@ -24,6 +24,7 @@ import { submitTurn } from "../../features/game-turn/submitTurn";
 import { gameRoomApi } from "../../features/game-room/gameRoomApi";
 import { listTeamChatMessages } from "../../features/team-chat/teamChatApi";
 import { emitTeamChatMessage } from "../../features/realtime/emitGameplayRealtimeEvent";
+import { createUuid } from "../../shared/utils/createUuid";
 import { hintApi } from "../../features/hint/hintApi";
 import {
   formatHintDisplayText,
@@ -1653,10 +1654,7 @@ function ChatPanel() {
   const sendMessage = () => {
     const content = draft.trim();
     if (!gameRoomId || !content || isSending || content.length > 500) return;
-    const clientMessageId =
-      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const clientMessageId = createUuid();
     store.setState((state) => ({
       ...state,
       teamChat: { ...state.teamChat, isSending: true },
